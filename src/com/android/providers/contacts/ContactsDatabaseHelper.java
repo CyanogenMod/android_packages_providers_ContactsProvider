@@ -379,6 +379,8 @@ import java.util.Locale;
                 Tables.RAW_CONTACTS + "." + RawContacts.CONTACT_ID;
         public static final String CONCRETE_NAME_VERIFIED =
                 Tables.RAW_CONTACTS + "." + RawContacts.NAME_VERIFIED;
+        public static final String CONCRETE_IS_RESTRICTED =
+                Tables.RAW_CONTACTS + "." + RawContacts.IS_RESTRICTED;
     }
 
     public interface DataColumns {
@@ -922,7 +924,8 @@ import java.util.Locale;
                 RawContacts.SYNC1 + " TEXT, " +
                 RawContacts.SYNC2 + " TEXT, " +
                 RawContacts.SYNC3 + " TEXT, " +
-                RawContacts.SYNC4 + " TEXT " +
+                RawContacts.SYNC4 + " TEXT, " +
+                RawContacts.IS_RESTRICTED + " INTEGER " +
         ");");
 
         db.execSQL("CREATE INDEX raw_contacts_contact_id_index ON " + Tables.RAW_CONTACTS + " (" +
@@ -1553,7 +1556,8 @@ import java.util.Locale;
                 + RawContactsColumns.CONCRETE_SYNC1 + " AS " + RawContacts.SYNC1 + ","
                 + RawContactsColumns.CONCRETE_SYNC2 + " AS " + RawContacts.SYNC2 + ","
                 + RawContactsColumns.CONCRETE_SYNC3 + " AS " + RawContacts.SYNC3 + ","
-                + RawContactsColumns.CONCRETE_SYNC4 + " AS " + RawContacts.SYNC4;
+                + RawContactsColumns.CONCRETE_SYNC4 + " AS " + RawContacts.SYNC4 + ","
+                + RawContactsColumns.CONCRETE_IS_RESTRICTED + " AS " + RawContacts.IS_RESTRICTED;;
 
         String baseContactColumns =
                 Contacts.HAS_PHONE_NUMBER + ", "
