@@ -4571,6 +4571,9 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
 
         try {
             for (int clusterId = 0; clusterId < strings.length; clusterId++) {
+                if (strings[clusterId] == null) {
+                    continue;
+                }
                 String[] names = strings[clusterId].split(",");
                 for (int j = 0; j < names.length; j++) {
                     String name = NameNormalizer.normalize(names[j]);
