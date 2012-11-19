@@ -16,9 +16,6 @@
 
 package com.android.providers.contacts;
 
-import com.android.providers.contacts.util.MockSharedPreferences;
-import com.google.android.collect.Sets;
-
 import android.accounts.Account;
 import android.accounts.AccountManager;
 import android.accounts.AccountManagerCallback;
@@ -31,6 +28,7 @@ import android.content.ContentResolver;
 import android.content.ContentUris;
 import android.content.ContentValues;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
@@ -58,6 +56,9 @@ import android.test.IsolatedContext;
 import android.test.RenamingDelegatingContext;
 import android.test.mock.MockContentResolver;
 import android.test.mock.MockContext;
+
+import com.android.providers.contacts.util.MockSharedPreferences;
+import com.google.android.collect.Sets;
 
 import java.io.File;
 import java.io.IOException;
@@ -340,6 +341,16 @@ public class ContactsActor {
         @Override
         public void enforceCallingOrSelfPermission(String permission, String message) {
             enforceCallingPermission(permission, message);
+        }
+
+        @Override
+        public void sendBroadcast(Intent intent) {
+            mOverallContext.sendBroadcast(intent);
+        }
+
+        @Override
+        public void sendBroadcast(Intent intent, String receiverPermission) {
+            mOverallContext.sendBroadcast(intent, receiverPermission);
         }
     }
 

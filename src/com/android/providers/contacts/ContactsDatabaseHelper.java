@@ -16,11 +16,6 @@
 
 package com.android.providers.contacts;
 
-import com.android.common.content.SyncStateContentProviderHelper;
-import com.android.providers.contacts.aggregation.util.CommonNicknameCache;
-import com.android.providers.contacts.util.NeededForTesting;
-import com.google.android.collect.Sets;
-
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
@@ -80,6 +75,11 @@ import android.text.util.Rfc822Token;
 import android.text.util.Rfc822Tokenizer;
 import android.util.Log;
 
+import com.android.common.content.SyncStateContentProviderHelper;
+import com.android.providers.contacts.aggregation.util.CommonNicknameCache;
+import com.android.providers.contacts.util.NeededForTesting;
+import com.google.android.collect.Sets;
+
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Set;
@@ -107,7 +107,7 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
      *   700-799 Jelly Bean
      * </pre>
      */
-    static final int DATABASE_VERSION = 704;
+    static final int DATABASE_VERSION = 705;
 
     private static final String DATABASE_NAME = "contacts2.db";
     private static final String DATABASE_PRESENCE = "presence_db";
@@ -777,6 +777,10 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
         mUseStrictPhoneNumberComparison =
                 resources.getBoolean(
                         com.android.internal.R.bool.config_use_strict_phone_number_comparation);
+    }
+
+    public SQLiteDatabase getDatabase(boolean writable) {
+        return writable ? getWritableDatabase() : getReadableDatabase();
     }
 
     /**
@@ -2371,6 +2375,14 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
             oldVersion = 704;
         }
 
+        if (oldVersion < 705) {
+            // Before this version, we didn't rebuild the search index on locale changes, so
+            // if the locale has changed after sync, the index contains gets stale.
+            // To correct the issue we have to rebuild the index here.
+            upgradeSearchIndex = true;
+            oldVersion = 705;
+        }
+
         if (upgradeViewsAndTriggers) {
             createContactsViews(db);
             createGroupsView(db);
@@ -2531,8 +2543,6 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
         db.execSQL("ALTER TABLE " + Tables.RAW_CONTACTS
                 + " ADD " + RawContacts.SORT_KEY_ALTERNATIVE
                 + " TEXT COLLATE " + ContactsProvider2.PHONEBOOK_COLLATOR_NAME + ";");
-
-        final Locale locale = Locale.getDefault();
 
         NameSplitter splitter = createNameSplitter();
 
@@ -4449,20 +4459,35 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
     }
 
     /**
-     * As opposed to {@link #buildPhoneLookupAndContactQuery}, this phone lookup will only do
-     * a comparison based on the last seven digits of the given phone number.  This is only intended
-     * to be used as a fallback, in case the regular lookup does not return any results.
+     * Phone lookup method that uses the custom SQLite function phone_number_compare_loose
+     * that serves as a fallback in case the regular lookup does not return any results.
      * @param qb The query builder.
      * @param number The phone number to search for.
      */
-    public void buildMinimalPhoneLookupAndContactQuery(SQLiteQueryBuilder qb, String number) {
-        String minMatch = PhoneNumberUtils.toCallerIDMinMatch(number);
-        StringBuilder sb = new StringBuilder();
-        appendPhoneLookupTables(sb, minMatch, true);
+    public void buildFallbackPhoneLookupAndContactQuery(SQLiteQueryBuilder qb, String number) {
+        final String minMatch = PhoneNumberUtils.toCallerIDMinMatch(number);
+        final StringBuilder sb = new StringBuilder();
+        //append lookup tables
+        sb.append(Tables.RAW_CONTACTS);
+        sb.append(" JOIN " + Views.CONTACTS + " as contacts_view"
+                + " ON (contacts_view._id = " + Tables.RAW_CONTACTS
+                + "." + RawContacts.CONTACT_ID + ")" +
+                " JOIN (SELECT " + PhoneLookupColumns.DATA_ID + "," +
+                PhoneLookupColumns.NORMALIZED_NUMBER + " FROM "+ Tables.PHONE_LOOKUP + " "
+                + "WHERE (" + Tables.PHONE_LOOKUP + "." + PhoneLookupColumns.MIN_MATCH + " = '");
+        sb.append(minMatch);
+        sb.append("')) AS lookup " +
+                "ON lookup." + PhoneLookupColumns.DATA_ID + "=" + Tables.DATA + "." + Data._ID
+                + " JOIN " + Tables.DATA + " "
+                + "ON " + Tables.DATA + "." + Data.RAW_CONTACT_ID + "=" + Tables.RAW_CONTACTS + "."
+                + RawContacts._ID);
+
         qb.setTables(sb.toString());
 
-        sb = new StringBuilder();
-        appendPhoneLookupSelection(sb, null, null);
+        sb.setLength(0);
+        sb.append("PHONE_NUMBERS_EQUAL(" + Tables.DATA + "." + Phone.NUMBER + ", ");
+        DatabaseUtils.appendEscapedSQLString(sb, number);
+        sb.append(mUseStrictPhoneNumberComparison ? ", 1)" : ", 0)");
         qb.appendWhere(sb.toString());
     }
 
@@ -4522,28 +4547,33 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
                 sb.append(" OR ");
             }
             if (hasNumber) {
-                int numberLen = number.length();
-                sb.append(" lookup.len <= ");
-                sb.append(numberLen);
-                sb.append(" AND substr(");
-                DatabaseUtils.appendEscapedSQLString(sb, number);
-                sb.append(',');
-                sb.append(numberLen);
-                sb.append(" - lookup.len + 1) = lookup.normalized_number");
+                // skip the suffix match entirely if we are using strict number comparison
+                if (!mUseStrictPhoneNumberComparison) {
+                    int numberLen = number.length();
+                    sb.append(" lookup.len <= ");
+                    sb.append(numberLen);
+                    sb.append(" AND substr(");
+                    DatabaseUtils.appendEscapedSQLString(sb, number);
+                    sb.append(',');
+                    sb.append(numberLen);
+                    sb.append(" - lookup.len + 1) = lookup.normalized_number");
 
-                // Some countries (e.g. Brazil) can have incoming calls which contain only the local
-                // number (no country calling code and no area code). This case is handled below.
-                // Details see b/5197612.
-                // This also handles a Gingerbread -> ICS upgrade issue; see b/5638376.
-                sb.append(" OR (");
-                sb.append(" lookup.len > ");
-                sb.append(numberLen);
-                sb.append(" AND substr(lookup.normalized_number,");
-                sb.append("lookup.len + 1 - ");
-                sb.append(numberLen);
-                sb.append(") = ");
-                DatabaseUtils.appendEscapedSQLString(sb, number);
-                sb.append(")");
+                    // Some countries (e.g. Brazil) can have incoming calls which contain only the local
+                    // number (no country calling code and no area code). This case is handled below.
+                    // Details see b/5197612.
+                    // This also handles a Gingerbread -> ICS upgrade issue; see b/5638376.
+                    sb.append(" OR (");
+                    sb.append(" lookup.len > ");
+                    sb.append(numberLen);
+                    sb.append(" AND substr(lookup.normalized_number,");
+                    sb.append("lookup.len + 1 - ");
+                    sb.append(numberLen);
+                    sb.append(") = ");
+                    DatabaseUtils.appendEscapedSQLString(sb, number);
+                    sb.append(")");
+                } else {
+                    sb.append("0");
+                }
             }
             sb.append(')');
         }
@@ -5272,6 +5302,16 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
 
     public String getCurrentCountryIso() {
         return mCountryMonitor.getCountryIso();
+    }
+
+    @NeededForTesting
+    /* package */ void setUseStrictPhoneNumberComparisonForTest(boolean useStrict) {
+        mUseStrictPhoneNumberComparison = useStrict;
+    }
+
+    @NeededForTesting
+    /* package */ boolean getUseStrictPhoneNumberComparisonForTest() {
+        return mUseStrictPhoneNumberComparison;
     }
 
     @NeededForTesting

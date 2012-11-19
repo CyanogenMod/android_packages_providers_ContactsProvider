@@ -17,11 +17,13 @@ package com.android.providers.contacts;
 
 import android.content.ContentValues;
 import android.content.Context;
+import android.content.Intent;
 import android.content.res.AssetFileDescriptor;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.net.Uri;
 import android.os.CancellationSignal;
+import android.provider.ContactsContract.Intents;
 
 import java.io.FileNotFoundException;
 import java.util.Locale;
@@ -31,7 +33,6 @@ import java.util.Locale;
  * database from the rest of contacts.
  */
 public class ProfileProvider extends AbstractContactsProvider {
-
     private static final String READ_PERMISSION = "android.permission.READ_PROFILE";
     private static final String WRITE_PERMISSION = "android.permission.WRITE_PROFILE";
 
@@ -81,7 +82,6 @@ public class ProfileProvider extends AbstractContactsProvider {
     public Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs,
             String sortOrder, CancellationSignal cancellationSignal) {
         enforceReadPermission(uri);
-        mDelegate.substituteDb(getDatabaseHelper().getReadableDatabase());
         return mDelegate.queryLocal(uri, projection, selection, selectionArgs, sortOrder, -1,
                 cancellationSignal);
     }
@@ -112,10 +112,8 @@ public class ProfileProvider extends AbstractContactsProvider {
     public AssetFileDescriptor openAssetFile(Uri uri, String mode) throws FileNotFoundException {
         if (mode != null && mode.contains("w")) {
             enforceWritePermission();
-            mDelegate.substituteDb(getDatabaseHelper().getWritableDatabase());
         } else {
             enforceReadPermission(uri);
-            mDelegate.substituteDb(getDatabaseHelper().getReadableDatabase());
         }
         return mDelegate.openAssetFileLocal(uri, mode);
     }
@@ -124,7 +122,6 @@ public class ProfileProvider extends AbstractContactsProvider {
         ContactsTransaction transaction = getCurrentTransaction();
         SQLiteDatabase db = getDatabaseHelper().getWritableDatabase();
         transaction.startTransactionForDb(db, ContactsProvider2.PROFILE_DB_TAG, this);
-        mDelegate.substituteDb(db);
     }
 
     @Override
@@ -142,20 +139,18 @@ public class ProfileProvider extends AbstractContactsProvider {
 
     @Override
     public void onBegin() {
-        mDelegate.switchToProfileMode();
-        mDelegate.onBegin();
+        mDelegate.onBeginTransactionInternal(true);
     }
 
     @Override
     public void onCommit() {
-        mDelegate.switchToProfileMode();
-        mDelegate.onCommit();
+        mDelegate.onCommitTransactionInternal(true);
+        sendProfileChangedBroadcast();
     }
 
     @Override
     public void onRollback() {
-        mDelegate.switchToProfileMode();
-        mDelegate.onRollback();
+        mDelegate.onRollbackTransactionInternal(true);
     }
 
     @Override
@@ -166,5 +161,16 @@ public class ProfileProvider extends AbstractContactsProvider {
     @Override
     public String getType(Uri uri) {
         return mDelegate.getType(uri);
+    }
+
+    /** Use only for debug logging */
+    @Override
+    public String toString() {
+        return "ProfileProvider";
+    }
+
+    private void sendProfileChangedBroadcast() {
+        final Intent intent = new Intent(Intents.ACTION_PROFILE_CHANGED);
+        getContext().sendBroadcast(intent, READ_PERMISSION);
     }
 }

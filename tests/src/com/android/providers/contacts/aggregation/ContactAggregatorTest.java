@@ -16,25 +16,15 @@
 
 package com.android.providers.contacts.aggregation;
 
-import com.android.providers.contacts.BaseContactsProvider2Test;
-import com.android.providers.contacts.ContactsDatabaseHelper.Tables;
-import com.android.providers.contacts.ContactsProvider2;
-import com.android.providers.contacts.TestUtils;
-import com.android.providers.contacts.tests.R;
-import com.google.android.collect.Lists;
-
 import android.accounts.Account;
 import android.content.ContentProviderOperation;
 import android.content.ContentProviderResult;
 import android.content.ContentUris;
 import android.content.ContentValues;
 import android.database.Cursor;
-import android.database.sqlite.SQLiteDatabase;
 import android.net.Uri;
-import android.provider.BaseColumns;
 import android.provider.ContactsContract;
 import android.provider.ContactsContract.AggregationExceptions;
-import android.provider.ContactsContract.CommonDataKinds.GroupMembership;
 import android.provider.ContactsContract.CommonDataKinds.Organization;
 import android.provider.ContactsContract.CommonDataKinds.StructuredName;
 import android.provider.ContactsContract.Contacts;
@@ -45,6 +35,11 @@ import android.provider.ContactsContract.RawContacts;
 import android.provider.ContactsContract.StatusUpdates;
 import android.test.MoreAsserts;
 import android.test.suitebuilder.annotation.MediumTest;
+
+import com.android.providers.contacts.BaseContactsProvider2Test;
+import com.android.providers.contacts.TestUtils;
+import com.android.providers.contacts.tests.R;
+import com.google.android.collect.Lists;
 
 /**
  * Unit tests for {@link ContactAggregator}.
@@ -535,6 +530,42 @@ public class ContactAggregatorTest extends BaseContactsProvider2Test {
 
         String displayName4 = queryDisplayName(queryContactId(rawContactId3));
         assertEquals("Johnm Smithm", displayName4);
+    }
+
+    public void testAggregationExceptionKeepOutCheckResultDisplayNames() {
+        long rawContactId1 = createRawContactWithName("c", "c", ACCOUNT_1);
+        long rawContactId2 = createRawContactWithName("b", "b", ACCOUNT_2);
+        long rawContactId3 = createRawContactWithName("a", "a", ACCOUNT_3);
+
+        // Join all contacts
+        setAggregationException(AggregationExceptions.TYPE_KEEP_TOGETHER,
+                rawContactId1, rawContactId2);
+        setAggregationException(AggregationExceptions.TYPE_KEEP_TOGETHER,
+                rawContactId1, rawContactId3);
+        setAggregationException(AggregationExceptions.TYPE_KEEP_TOGETHER,
+                rawContactId2, rawContactId3);
+
+        // Separate all contacts. The order (2-3 , 1-2, 1-3) is important
+        setAggregationException(AggregationExceptions.TYPE_KEEP_SEPARATE,
+                rawContactId2, rawContactId3);
+        setAggregationException(AggregationExceptions.TYPE_KEEP_SEPARATE,
+                rawContactId1, rawContactId2);
+        setAggregationException(AggregationExceptions.TYPE_KEEP_SEPARATE,
+                rawContactId1, rawContactId3);
+
+        // Verify that we have three different contacts
+        long contactId1 = queryContactId(rawContactId1);
+        long contactId2 = queryContactId(rawContactId2);
+        long contactId3 = queryContactId(rawContactId3);
+
+        assertTrue(contactId1 != contactId2);
+        assertTrue(contactId1 != contactId3);
+        assertTrue(contactId2 != contactId3);
+
+        // Verify that each raw contact contribute to the contact display name
+        assertDisplayNameEquals(contactId1, rawContactId1);
+        assertDisplayNameEquals(contactId2, rawContactId2);
+        assertDisplayNameEquals(contactId3, rawContactId3);
     }
 
     public void testNonAggregationWithMultipleAffinities() {
@@ -1412,5 +1443,19 @@ public class ContactAggregatorTest extends BaseContactsProvider2Test {
         }
 
         cursor.close();
+    }
+
+    private void assertDisplayNameEquals(long contactId, long rawContactId) {
+
+        String contactDisplayName = queryDisplayName(contactId);
+
+        Cursor c = queryRawContact(rawContactId);
+        assertTrue(c.moveToFirst());
+        String rawDisplayName = c.getString(c.getColumnIndex(RawContacts.DISPLAY_NAME_PRIMARY));
+        c.close();
+
+        assertTrue(contactDisplayName != null);
+        assertTrue(rawDisplayName != null);
+        assertEquals(rawDisplayName, contactDisplayName);
     }
 }

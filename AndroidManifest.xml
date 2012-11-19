@@ -14,15 +14,9 @@
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.WRITE_CONTACTS" />
     <uses-permission android:name="android.permission.GET_ACCOUNTS" />
-    <uses-permission android:name="android.permission.READ_SYNC_STATS" />
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.USE_CREDENTIALS" />
-    <uses-permission android:name="com.google.android.googleapps.permission.GOOGLE_AUTH" />
-    <uses-permission android:name="com.google.android.googleapps.permission.GOOGLE_AUTH.cp" />
-    <uses-permission android:name="android.permission.SUBSCRIBED_FEEDS_READ" />
-    <uses-permission android:name="android.permission.SUBSCRIBED_FEEDS_WRITE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.BIND_DIRECTORY_SEARCH" />
 
     <application android:process="android.process.acore"
         android:label="@string/app_label"
@@ -33,6 +27,7 @@
             android:authorities="contacts;com.android.contacts"
             android:label="@string/provider_label"
             android:multiprocess="false"
+            android:exported="true"
             android:readPermission="android.permission.READ_CONTACTS"
             android:writePermission="android.permission.WRITE_CONTACTS">
             <path-permission
@@ -50,6 +45,7 @@
         <provider android:name="CallLogProvider"
             android:authorities="call_log"
             android:syncable="false" android:multiprocess="false"
+            android:exported="true"
             android:readPermission="android.permission.READ_CALL_LOG"
             android:writePermission="android.permission.WRITE_CALL_LOG">
         </provider>
@@ -57,6 +53,7 @@
         <provider android:name="VoicemailContentProvider"
             android:authorities="com.android.voicemail"
             android:syncable="false" android:multiprocess="false"
+            android:exported="true"
             android:permission="com.android.voicemail.permission.ADD_VOICEMAIL">
         </provider>
 
@@ -96,5 +93,21 @@
         </receiver>
 
         <service android:name="VoicemailCleanupService"/>
+
+        <activity android:name=".debug.ContactsDumpActivity"
+                android:label="@string/debug_dump_title"
+                android:theme="@android:style/Theme.Holo.Dialog"
+                >
+            <intent-filter>
+                <action android:name="com.android.providers.contacts.DUMP_DATABASE"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
+        </activity>
+
+        <provider android:name=".debug.DumpFileProvider"
+            android:authorities="com.android.contacts.dumpfile"
+            android:exported="true">
+        </provider>
+
     </application>
 </manifest>

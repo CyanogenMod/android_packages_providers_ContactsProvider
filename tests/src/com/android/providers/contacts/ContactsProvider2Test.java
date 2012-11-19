@@ -18,16 +18,6 @@ package com.android.providers.contacts;
 
 import static com.android.providers.contacts.TestUtils.cv;
 
-import com.android.internal.util.ArrayUtils;
-import com.android.providers.contacts.ContactsDatabaseHelper.AggregationExceptionColumns;
-import com.android.providers.contacts.ContactsDatabaseHelper.DataUsageStatColumns;
-import com.android.providers.contacts.ContactsDatabaseHelper.DbProperties;
-import com.android.providers.contacts.ContactsDatabaseHelper.PresenceColumns;
-import com.android.providers.contacts.ContactsDatabaseHelper.Tables;
-import com.android.providers.contacts.tests.R;
-import com.google.android.collect.Lists;
-import com.google.android.collect.Sets;
-
 import android.accounts.Account;
 import android.content.ContentProviderOperation;
 import android.content.ContentProviderResult;
@@ -75,6 +65,17 @@ import android.provider.OpenableColumns;
 import android.test.MoreAsserts;
 import android.test.suitebuilder.annotation.LargeTest;
 import android.text.TextUtils;
+
+import com.android.internal.util.ArrayUtils;
+import com.android.providers.contacts.ContactsDatabaseHelper;
+import com.android.providers.contacts.ContactsDatabaseHelper.AggregationExceptionColumns;
+import com.android.providers.contacts.ContactsDatabaseHelper.DataUsageStatColumns;
+import com.android.providers.contacts.ContactsDatabaseHelper.DbProperties;
+import com.android.providers.contacts.ContactsDatabaseHelper.PresenceColumns;
+import com.android.providers.contacts.ContactsDatabaseHelper.Tables;
+import com.android.providers.contacts.tests.R;
+import com.google.android.collect.Lists;
+import com.google.android.collect.Sets;
 
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -1020,11 +1021,16 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
 
         final Uri dataUri = mResolver.insert(Data.CONTENT_URI, values);
 
-        // Ensure both can be looked up
+        // Check the lookup table.
         assertEquals(1,
                 getCount(Uri.withAppendedPath(Phone.CONTENT_FILTER_URI, "1234"), null, null));
         assertEquals(1,
                 getCount(Uri.withAppendedPath(Phone.CONTENT_FILTER_URI, "5678"), null, null));
+
+        // Check the data table.
+        assertStoredValues(dataUri,
+                cv(Phone.NUMBER, "1234", Phone.NORMALIZED_NUMBER, "5678")
+                );
 
         // Replace both in an UPDATE
         values.clear();
@@ -1040,17 +1046,25 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
         assertEquals(1,
                 getCount(Uri.withAppendedPath(Phone.CONTENT_FILTER_URI, "8765"), null, null));
 
+        assertStoredValues(dataUri,
+                cv(Phone.NUMBER, "4321", Phone.NORMALIZED_NUMBER, "8765")
+                );
+
         // Replace only NUMBER ==> NORMALIZED_NUMBER will be inferred (we test that by making
         // sure the old manual value can not be found anymore)
         values.clear();
-        values.put(Phone.NUMBER, "1-800-466-5432");
+        values.put(Phone.NUMBER, "+1-800-466-5432");
         mResolver.update(dataUri, values, null, null);
         assertEquals(
                 1,
-                getCount(Uri.withAppendedPath(Phone.CONTENT_FILTER_URI, "1-800-466-5432"), null,
+                getCount(Uri.withAppendedPath(Phone.CONTENT_FILTER_URI, "+1-800-466-5432"), null,
                         null));
         assertEquals(0,
                 getCount(Uri.withAppendedPath(Phone.CONTENT_FILTER_URI, "8765"), null, null));
+
+        assertStoredValues(dataUri,
+                cv(Phone.NUMBER, "+1-800-466-5432", Phone.NORMALIZED_NUMBER, "+18004665432")
+                );
 
         // Replace only NORMALIZED_NUMBER ==> call is ignored, things will be unchanged
         values.clear();
@@ -1058,10 +1072,42 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
         mResolver.update(dataUri, values, null, null);
         assertEquals(
                 1,
-                getCount(Uri.withAppendedPath(Phone.CONTENT_FILTER_URI, "1-800-466-5432"), null,
+                getCount(Uri.withAppendedPath(Phone.CONTENT_FILTER_URI, "+1-800-466-5432"), null,
                         null));
         assertEquals(0,
                 getCount(Uri.withAppendedPath(Phone.CONTENT_FILTER_URI, "8765"), null, null));
+
+        assertStoredValues(dataUri,
+                cv(Phone.NUMBER, "+1-800-466-5432", Phone.NORMALIZED_NUMBER, "+18004665432")
+                );
+
+        // Replace NUMBER with an "invalid" number which can't be normalized.  It should clear
+        // NORMALIZED_NUMBER.
+
+        // 1. Set 999 to NORMALIZED_NUMBER explicitly.
+        values.clear();
+        values.put(Phone.NUMBER, "888");
+        values.put(Phone.NORMALIZED_NUMBER, "999");
+        mResolver.update(dataUri, values, null, null);
+
+        assertEquals(1,
+                getCount(Uri.withAppendedPath(Phone.CONTENT_FILTER_URI, "999"), null, null));
+
+        assertStoredValues(dataUri,
+                cv(Phone.NUMBER, "888", Phone.NORMALIZED_NUMBER, "999")
+                );
+
+        // 2. Set an invalid number to NUMBER.
+        values.clear();
+        values.put(Phone.NUMBER, "1");
+        mResolver.update(dataUri, values, null, null);
+
+        assertEquals(0,
+                getCount(Uri.withAppendedPath(Phone.CONTENT_FILTER_URI, "999"), null, null));
+
+        assertStoredValues(dataUri,
+                cv(Phone.NUMBER, "1", Phone.NORMALIZED_NUMBER, null)
+                );
     }
 
     public void testPhonesFilterQuery() {
@@ -1237,6 +1283,10 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
         // call id should  match to both "8004664411" and "+18004664411".
         Uri lookupUri2 = Uri.withAppendedPath(PhoneLookup.CONTENT_FILTER_URI, "4664411");
         assertEquals(2, getCount(lookupUri2, null, null));
+
+        // A wrong area code 799 vs 800 should not be matched
+        lookupUri2 = Uri.withAppendedPath(PhoneLookup.CONTENT_FILTER_URI, "7994664411");
+        assertEquals(0, getCount(lookupUri2, null, null));
     }
 
     public void testPhoneLookupUseCases() {
@@ -1264,6 +1314,18 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
         // match with national format
         lookupUri2 = Uri.withAppendedPath(PhoneLookup.CONTENT_FILTER_URI, "650 861 0000");
         assertEquals(1, getCount(lookupUri2, null, null));
+
+        // does not match with wrong area code
+        lookupUri2 = Uri.withAppendedPath(PhoneLookup.CONTENT_FILTER_URI, "649 861 0000");
+        assertEquals(0, getCount(lookupUri2, null, null));
+
+        // does not match with missing digits in mistyped area code
+        lookupUri2 = Uri.withAppendedPath(PhoneLookup.CONTENT_FILTER_URI, "5 861 0000");
+        assertEquals(0, getCount(lookupUri2, null, null));
+
+        // does not match with missing digit in mistyped area code
+        lookupUri2 = Uri.withAppendedPath(PhoneLookup.CONTENT_FILTER_URI, "65 861 0000");
+        assertEquals(0, getCount(lookupUri2, null, null));
 
         // National format in contacts
         values.clear();
@@ -1307,8 +1369,8 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
     }
 
     public void testIntlPhoneLookupUseCases() {
-        // Checks the logic that relies on using the trailing 7-digits as a fallback for phone
-        // number lookups.
+        // Checks the logic that relies on phone_number_compare_loose(Gingerbread) as a fallback
+        //for phone number lookups.
         String fullNumber = "01197297427289";
 
         ContentValues values = new ContentValues();
@@ -1326,9 +1388,9 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
         assertEquals(2, getCount(Uri.withAppendedPath(
                 PhoneLookup.CONTENT_FILTER_URI, "097427289"), null, null));
 
-        // Shorter (local) number with +0 prefix should also match.
-        assertEquals(2, getCount(Uri.withAppendedPath(
-                PhoneLookup.CONTENT_FILTER_URI, "+097427289"), null, null));
+        // Number with international (+972) prefix should also match.
+        assertEquals(1, getCount(Uri.withAppendedPath(
+                PhoneLookup.CONTENT_FILTER_URI, "+97297427289"), null, null));
 
         // Same shorter number with dashes should match.
         assertEquals(2, getCount(Uri.withAppendedPath(
@@ -1368,6 +1430,63 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
 
         assertEquals(1, getCount(Uri.withAppendedPath(
                 PhoneLookup.CONTENT_FILTER_URI, "4 879 601 0101"), null, null));
+    }
+
+    public void testPhoneLookupUseStrictPhoneNumberCompare() {
+        // Test lookup cases when mUseStrictPhoneNumberComparison is true
+        final ContactsProvider2 cp = (ContactsProvider2) getProvider();
+        final ContactsDatabaseHelper dbHelper = cp.getThreadActiveDatabaseHelperForTest();
+        // Get and save the original value of mUseStrictPhoneNumberComparison so that we
+        // can restore it when we are done with the test
+        final boolean oldUseStrict = dbHelper.getUseStrictPhoneNumberComparisonForTest();
+        dbHelper.setUseStrictPhoneNumberComparisonForTest(true);
+
+
+        try {
+            String fullNumber = "01197297427289";
+            ContentValues values = new ContentValues();
+            values.put(RawContacts.CUSTOM_RINGTONE, "d");
+            values.put(RawContacts.SEND_TO_VOICEMAIL, 1);
+            long rawContactId = ContentUris.parseId(
+                    mResolver.insert(RawContacts.CONTENT_URI, values));
+            insertStructuredName(rawContactId, "Senor", "Chang");
+            insertPhoneNumber(rawContactId, fullNumber);
+            insertPhoneNumber(rawContactId, "5103337596");
+            insertPhoneNumber(rawContactId, "+19012345678");
+            // One match for full number
+            assertEquals(1, getCount(Uri.withAppendedPath(
+                    PhoneLookup.CONTENT_FILTER_URI, fullNumber), null, null));
+
+            // No matches for extra digit at the front
+            assertEquals(0, getCount(Uri.withAppendedPath(
+                    PhoneLookup.CONTENT_FILTER_URI, "55103337596"), null, null));
+            // No matches for mispelled area code
+            assertEquals(0, getCount(Uri.withAppendedPath(
+                    PhoneLookup.CONTENT_FILTER_URI, "5123337596"), null, null));
+
+            // One match for matching number with dashes
+            assertEquals(1, getCount(Uri.withAppendedPath(
+                    PhoneLookup.CONTENT_FILTER_URI, "510-333-7596"), null, null));
+
+            // One match for matching number with international code
+            assertEquals(1, getCount(Uri.withAppendedPath(
+                    PhoneLookup.CONTENT_FILTER_URI, "+1-510-333-7596"), null, null));
+            values.clear();
+
+            // No matches for extra 0 in front
+            assertEquals(0, getCount(Uri.withAppendedPath(
+                    PhoneLookup.CONTENT_FILTER_URI, "0-510-333-7596"), null, null));
+            values.clear();
+
+            // No matches for different country code
+            assertEquals(0, getCount(Uri.withAppendedPath(
+                    PhoneLookup.CONTENT_FILTER_URI, "+819012345678"), null, null));
+            values.clear();
+        } finally {
+            // restore the original value of mUseStrictPhoneNumberComparison
+            // upon test completion or failure
+            dbHelper.setUseStrictPhoneNumberComparisonForTest(oldUseStrict);
+        }
     }
 
     public void testPhoneUpdate() {
@@ -5756,7 +5875,7 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
         PhotoStore profilePhotoStore = provider.getProfilePhotoStore();
 
         // Trigger an initial cleanup so another one won't happen while we're running this test.
-        provider.switchToProfileMode();
+        provider.switchToProfileModeForTest();
         provider.cleanupPhotoStore();
 
         // Create the profile contact and add a photo.
@@ -5787,7 +5906,7 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
         profilePhotoStore.remove(streamItemPhotoFileId);
 
         // Manually trigger another cleanup in the provider.
-        provider.switchToProfileMode();
+        provider.switchToProfileModeForTest();
         provider.cleanupPhotoStore();
 
         // The following things should have happened.

@@ -15,14 +15,6 @@
  */
 package com.android.providers.contacts;
 
-import com.android.providers.contacts.ContactsDatabaseHelper.DataColumns;
-import com.android.providers.contacts.ContactsDatabaseHelper.MimetypesColumns;
-import com.android.providers.contacts.ContactsDatabaseHelper.RawContactsColumns;
-import com.android.providers.contacts.ContactsDatabaseHelper.SearchIndexColumns;
-import com.android.providers.contacts.ContactsDatabaseHelper.Tables;
-import com.google.android.collect.Lists;
-import com.google.common.annotations.VisibleForTesting;
-
 import android.content.ContentValues;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
@@ -36,6 +28,14 @@ import android.provider.ContactsContract.ProviderStatus;
 import android.provider.ContactsContract.RawContacts;
 import android.text.TextUtils;
 import android.util.Log;
+
+import com.android.providers.contacts.ContactsDatabaseHelper.DataColumns;
+import com.android.providers.contacts.ContactsDatabaseHelper.MimetypesColumns;
+import com.android.providers.contacts.ContactsDatabaseHelper.RawContactsColumns;
+import com.android.providers.contacts.ContactsDatabaseHelper.SearchIndexColumns;
+import com.android.providers.contacts.ContactsDatabaseHelper.Tables;
+import com.google.android.collect.Lists;
+import com.google.common.annotations.VisibleForTesting;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -243,13 +243,19 @@ public class SearchIndexManager {
         mDbHelper = (ContactsDatabaseHelper) mContactsProvider.getDatabaseHelper();
     }
 
-    public void updateIndex() {
-        if (getSearchIndexVersion() == SEARCH_INDEX_VERSION) {
-            return;
+    public void updateIndex(boolean force) {
+        if (force) {
+            setSearchIndexVersion(0);
+        } else {
+            if (getSearchIndexVersion() == SEARCH_INDEX_VERSION) {
+                return;
+            }
         }
         SQLiteDatabase db = mDbHelper.getWritableDatabase();
         db.beginTransaction();
         try {
+            // We do a version check again, because the version might have been modified after
+            // the first check.  We need to do the check again in a transaction to make sure.
             if (getSearchIndexVersion() != SEARCH_INDEX_VERSION) {
                 rebuildIndex(db);
                 setSearchIndexVersion(SEARCH_INDEX_VERSION);
