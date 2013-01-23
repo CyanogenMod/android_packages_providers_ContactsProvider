@@ -735,6 +735,8 @@ public class ContactsProvider2 extends AbstractContactsProvider
     /** Contains just the contacts vCard columns */
     private static final ProjectionMap sContactsVCardProjectionMap = ProjectionMap.builder()
             .add(Contacts._ID)
+            .add(Contacts.DISPLAY_NAME_PRIMARY)
+            .add(Contacts.DISPLAY_NAME_ALTERNATIVE)
             .add(OpenableColumns.DISPLAY_NAME, Contacts.DISPLAY_NAME + " || '.vcf'")
             .add(OpenableColumns.SIZE, "NULL")
             .build();
