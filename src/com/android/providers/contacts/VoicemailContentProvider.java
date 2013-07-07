@@ -25,6 +25,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
+import android.database.MemoryCursor;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.ParcelFileDescriptor;
