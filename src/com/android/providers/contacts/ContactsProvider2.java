@@ -2661,7 +2661,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
         long rawContactId = db.insert(Tables.RAW_CONTACTS,
                 RawContacts.CONTACT_ID, mValues);
         int aggregationMode = getIntValue(values, RawContacts.AGGREGATION_MODE,
-                RawContacts.AGGREGATION_MODE_DEFAULT);
+                RawContacts.AGGREGATION_MODE_SUSPENDED);
         mAggregator.get().markNewForAggregation(rawContactId, aggregationMode);
 
         // Trigger creation of a Contact based on this RawContact at the end of transaction
