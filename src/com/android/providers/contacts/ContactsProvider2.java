@@ -19,6 +19,7 @@ package com.android.providers.contacts;
 import android.accounts.Account;
 import android.accounts.AccountManager;
 import android.accounts.OnAccountsUpdateListener;
+import android.app.AppOpsManager;
 import android.app.SearchManager;
 import android.content.ContentProviderOperation;
 import android.content.ContentProviderResult;
@@ -69,6 +70,7 @@ import android.provider.BaseColumns;
 import android.provider.ContactsContract;
 import android.provider.ContactsContract.AggregationExceptions;
 import android.provider.ContactsContract.Authorization;
+import android.provider.ContactsContract.CommonDataKinds.Contactables;
 import android.provider.ContactsContract.CommonDataKinds.Email;
 import android.provider.ContactsContract.CommonDataKinds.GroupMembership;
 import android.provider.ContactsContract.CommonDataKinds.Identity;
@@ -109,6 +111,7 @@ import android.util.Log;
 
 import com.android.common.content.ProjectionMap;
 import com.android.common.content.SyncStateContentProviderHelper;
+import com.android.common.io.MoreCloseables;
 import com.android.providers.contacts.ContactLookupKey.LookupKeySegment;
 import com.android.providers.contacts.ContactsDatabaseHelper.AccountsColumns;
 import com.android.providers.contacts.ContactsDatabaseHelper.AggregatedPresenceColumns;
@@ -141,6 +144,8 @@ import com.android.providers.contacts.aggregation.ContactAggregator;
 import com.android.providers.contacts.aggregation.ContactAggregator.AggregationSuggestionParameter;
 import com.android.providers.contacts.aggregation.ProfileAggregator;
 import com.android.providers.contacts.aggregation.util.CommonNicknameCache;
+import com.android.providers.contacts.database.ContactsTableUtil;
+import com.android.providers.contacts.database.DeletedContactsTableUtil;
 import com.android.providers.contacts.util.Clock;
 import com.android.providers.contacts.util.DbQueryUtils;
 import com.android.providers.contacts.util.NeededForTesting;
@@ -193,6 +198,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
     private static final int BACKGROUND_TASK_UPDATE_DIRECTORIES = 8;
     private static final int BACKGROUND_TASK_CHANGE_LOCALE = 9;
     private static final int BACKGROUND_TASK_CLEANUP_PHOTOS = 10;
+    private static final int BACKGROUND_TASK_CLEAN_DELETE_LOG = 11;
 
     /** Default for the maximum number of returned aggregation suggestions. */
     private static final int DEFAULT_MAX_SUGGESTIONS = 5;
@@ -208,6 +214,8 @@ public class ContactsProvider2 extends AbstractContactsProvider
      * setting.
      */
     private static final int DEFAULT_PREAUTHORIZED_URI_EXPIRATION = 5 * 60 * 1000;
+
+    private static final int USAGE_TYPE_ALL = -1;
 
     /**
      * Random URI parameter that will be appended to preauthorized URIs for uniqueness.
@@ -304,6 +312,8 @@ public class ContactsProvider2 extends AbstractContactsProvider
     private static final int CALLABLES = 3011;
     private static final int CALLABLES_ID = 3012;
     private static final int CALLABLES_FILTER = 3013;
+    private static final int CONTACTABLES = 3014;
+    private static final int CONTACTABLES_FILTER = 3015;
 
     private static final int PHONE_LOOKUP = 4000;
 
@@ -363,6 +373,9 @@ public class ContactsProvider2 extends AbstractContactsProvider
 
     private static final int DISPLAY_PHOTO_ID = 22000;
     private static final int PHOTO_DIMENSIONS = 22001;
+
+    private static final int DELETED_CONTACTS = 23000;
+    private static final int DELETED_CONTACTS_ID = 23001;
 
     // Inserts into URIs in this map will direct to the profile database if the parent record's
     // value (looked up from the ContentValues object with the key specified by the value in this
@@ -515,11 +528,11 @@ public class ContactsProvider2 extends AbstractContactsProvider
     private static final String EMAIL_FILTER_SORT_ORDER =
         Contacts.STARRED + " DESC, "
         + Data.IS_SUPER_PRIMARY + " DESC, "
-        + Data.IS_PRIMARY + " DESC, "
         + SORT_BY_DATA_USAGE + ", "
         + Contacts.IN_VISIBLE_GROUP + " DESC, "
         + Contacts.DISPLAY_NAME + ", "
-        + Data.CONTACT_ID;
+        + Data.CONTACT_ID + ", "
+        + Data.IS_PRIMARY + " DESC";
 
     /** Currently same as {@link #EMAIL_FILTER_SORT_ORDER} */
     private static final String PHONE_FILTER_SORT_ORDER = EMAIL_FILTER_SORT_ORDER;
@@ -565,9 +578,14 @@ public class ContactsProvider2 extends AbstractContactsProvider
             .add(Contacts.SEND_TO_VOICEMAIL)
             .add(Contacts.SORT_KEY_ALTERNATIVE)
             .add(Contacts.SORT_KEY_PRIMARY)
+            .add(ContactsColumns.PHONEBOOK_LABEL_PRIMARY)
+            .add(ContactsColumns.PHONEBOOK_BUCKET_PRIMARY)
+            .add(ContactsColumns.PHONEBOOK_LABEL_ALTERNATIVE)
+            .add(ContactsColumns.PHONEBOOK_BUCKET_ALTERNATIVE)
             .add(Contacts.STARRED)
             .add(Contacts.TIMES_CONTACTED)
             .add(Contacts.HAS_PHONE_NUMBER)
+            .add(Contacts.CONTACT_LAST_UPDATED_TIMESTAMP)
             .build();
 
     private static final ProjectionMap sContactsPresenceColumns = ProjectionMap.builder()
@@ -664,6 +682,11 @@ public class ContactsProvider2 extends AbstractContactsProvider
             .add(Data.STATUS_ICON, StatusUpdatesColumns.CONCRETE_STATUS_ICON)
             .build();
 
+    private static final ProjectionMap sDataUsageColumns = ProjectionMap.builder()
+            .add(Data.TIMES_USED, Tables.DATA_USAGE_STAT + "." + Data.TIMES_USED)
+            .add(Data.LAST_TIME_USED, Tables.DATA_USAGE_STAT + "." + Data.LAST_TIME_USED)
+            .build();
+
     /** Contains just BaseColumns._COUNT */
     private static final ProjectionMap sCountProjectionMap = ProjectionMap.builder()
             .add(BaseColumns._COUNT, "COUNT(*)")
@@ -754,6 +777,10 @@ public class ContactsProvider2 extends AbstractContactsProvider
             .add(RawContacts.PHONETIC_NAME_STYLE)
             .add(RawContacts.SORT_KEY_PRIMARY)
             .add(RawContacts.SORT_KEY_ALTERNATIVE)
+            .add(RawContactsColumns.PHONEBOOK_LABEL_PRIMARY)
+            .add(RawContactsColumns.PHONEBOOK_BUCKET_PRIMARY)
+            .add(RawContactsColumns.PHONEBOOK_LABEL_ALTERNATIVE)
+            .add(RawContactsColumns.PHONEBOOK_BUCKET_ALTERNATIVE)
             .add(RawContacts.TIMES_CONTACTED)
             .add(RawContacts.LAST_TIME_CONTACTED)
             .add(RawContacts.CUSTOM_RINGTONE)
@@ -815,6 +842,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
             .addAll(sRawContactColumns)
             .addAll(sContactsColumns)
             .addAll(sContactPresenceColumns)
+            .addAll(sDataUsageColumns)
             .build();
 
     /** Contains columns from the data view used for SIP address lookup. */
@@ -832,6 +860,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
             .addAll(sDataPresenceColumns)
             .addAll(sContactsColumns)
             .addAll(sContactPresenceColumns)
+            .addAll(sDataUsageColumns)
             .build();
 
     /** Contains columns from the data view used for SIP address lookup. */
@@ -886,6 +915,11 @@ public class ContactsProvider2 extends AbstractContactsProvider
             .add(Groups.SYNC2)
             .add(Groups.SYNC3)
             .add(Groups.SYNC4)
+            .build();
+
+    private static final ProjectionMap sDeletedContactsProjectionMap = ProjectionMap.builder()
+            .add(ContactsContract.DeletedContacts.CONTACT_ID)
+            .add(ContactsContract.DeletedContacts.CONTACT_DELETED_TIMESTAMP)
             .build();
 
     /**
@@ -1147,6 +1181,11 @@ public class ContactsProvider2 extends AbstractContactsProvider
         matcher.addURI(ContactsContract.AUTHORITY, "data/callables/filter", CALLABLES_FILTER);
         matcher.addURI(ContactsContract.AUTHORITY, "data/callables/filter/*", CALLABLES_FILTER);
 
+        matcher.addURI(ContactsContract.AUTHORITY, "data/contactables/", CONTACTABLES);
+        matcher.addURI(ContactsContract.AUTHORITY, "data/contactables/filter", CONTACTABLES_FILTER);
+        matcher.addURI(ContactsContract.AUTHORITY, "data/contactables/filter/*",
+                CONTACTABLES_FILTER);
+
         matcher.addURI(ContactsContract.AUTHORITY, "groups", GROUPS);
         matcher.addURI(ContactsContract.AUTHORITY, "groups/#", GROUPS_ID);
         matcher.addURI(ContactsContract.AUTHORITY, "groups_summary", GROUPS_SUMMARY);
@@ -1214,6 +1253,9 @@ public class ContactsProvider2 extends AbstractContactsProvider
 
         matcher.addURI(ContactsContract.AUTHORITY, "display_photo/#", DISPLAY_PHOTO_ID);
         matcher.addURI(ContactsContract.AUTHORITY, "photo_dimensions", PHOTO_DIMENSIONS);
+
+        matcher.addURI(ContactsContract.AUTHORITY, "deleted_contacts", DELETED_CONTACTS);
+        matcher.addURI(ContactsContract.AUTHORITY, "deleted_contacts/#", DELETED_CONTACTS_ID);
     }
 
     private static class DirectoryInfo {
@@ -1357,6 +1399,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
             Log.d(Constants.PERFORMANCE_TAG, "ContactsProvider2.onCreate start");
         }
         super.onCreate();
+        setAppOps(AppOpsManager.OP_READ_CONTACTS, AppOpsManager.OP_WRITE_CONTACTS);
         try {
             return initialize();
         } catch (RuntimeException e) {
@@ -1383,7 +1426,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
         StrictMode.setThreadPolicy(
                 new StrictMode.ThreadPolicy.Builder().detectAll().penaltyLog().build());
 
-        mFastScrollingIndexCache = new FastScrollingIndexCache(getContext());
+        mFastScrollingIndexCache = FastScrollingIndexCache.getInstance(getContext());
 
         mContactsHelper = getDatabaseHelper(getContext());
         mDbHelper.set(mContactsHelper);
@@ -1444,7 +1487,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
         mNameLookupBuilder = new StructuredNameLookupBuilder(mNameSplitter);
         mPostalSplitter = new PostalSplitter(mCurrentLocale);
         mCommonNicknameCache = new CommonNicknameCache(mContactsHelper.getReadableDatabase());
-        ContactLocaleUtils.getIntance().setLocale(mCurrentLocale);
+        ContactLocaleUtils.setLocale(mCurrentLocale);
         mContactAggregator = new ContactAggregator(this, mContactsHelper,
                 createPhotoPriorityResolver(context), mNameSplitter, mCommonNicknameCache);
         mContactAggregator.setEnabled(SystemProperties.getBoolean(AGGREGATE_CONTACTS, true));
@@ -1604,6 +1647,11 @@ public class ContactsProvider2 extends AbstractContactsProvider
                     break;
                 }
             }
+
+            case BACKGROUND_TASK_CLEAN_DELETE_LOG: {
+                final SQLiteDatabase db = mDbHelper.get().getWritableDatabase();
+                DeletedContactsTableUtil.deleteOldLogs(db);
+            }
         }
     }
 
@@ -1614,6 +1662,26 @@ public class ContactsProvider2 extends AbstractContactsProvider
         }
 
         scheduleBackgroundTask(BACKGROUND_TASK_CHANGE_LOCALE);
+    }
+
+    private static boolean needsToUpdateLocaleData(SharedPreferences prefs,
+            Locale locale,ContactsDatabaseHelper contactsHelper,
+            ProfileDatabaseHelper profileHelper) {
+        final String providerLocale = prefs.getString(PREF_LOCALE, null);
+
+        // If locale matches that of the provider, and neither DB needs
+        // updating, there's nothing to do. A DB might require updating
+        // as a result of a system upgrade.
+        if (!locale.toString().equals(providerLocale)) {
+            Log.i(TAG, "Locale has changed from " + providerLocale
+                    + " to " + locale.toString());
+            return true;
+        }
+        if (contactsHelper.needsToUpdateLocaleData(locale) ||
+                profileHelper.needsToUpdateLocaleData(locale)) {
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -1630,21 +1698,42 @@ public class ContactsProvider2 extends AbstractContactsProvider
             return;
         }
 
-        final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getContext());
-        final String providerLocale = prefs.getString(PREF_LOCALE, null);
         final Locale currentLocale = mCurrentLocale;
-        if (currentLocale.toString().equals(providerLocale)) {
+        final SharedPreferences prefs =
+            PreferenceManager.getDefaultSharedPreferences(getContext());
+        if (!needsToUpdateLocaleData(prefs, currentLocale,
+                        mContactsHelper, mProfileHelper)) {
             return;
         }
 
         int providerStatus = mProviderStatus;
         setProviderStatus(ProviderStatus.STATUS_CHANGING_LOCALE);
-        mContactsHelper.setLocale(this, currentLocale);
-        mProfileHelper.setLocale(this, currentLocale);
+        mContactsHelper.setLocale(currentLocale);
+        mProfileHelper.setLocale(currentLocale);
         mSearchIndexManager.updateIndex(true);
-        prefs.edit().putString(PREF_LOCALE, currentLocale.toString()).apply();
-        invalidateFastScrollingIndexCache();
+        prefs.edit().putString(PREF_LOCALE, currentLocale.toString()).commit();
         setProviderStatus(providerStatus);
+    }
+
+    // Static update routine for use by ContactsUpgradeReceiver during startup.
+    // This clears the search index and marks it to be rebuilt, but doesn't
+    // actually rebuild it. That is done later by
+    // BACKGROUND_TASK_UPDATE_SEARCH_INDEX.
+    protected static void updateLocaleOffline(Context context,
+            ContactsDatabaseHelper contactsHelper,
+            ProfileDatabaseHelper profileHelper) {
+        final Locale currentLocale = Locale.getDefault();
+        final SharedPreferences prefs =
+            PreferenceManager.getDefaultSharedPreferences(context);
+        if (!needsToUpdateLocaleData(prefs, currentLocale,
+                        contactsHelper, profileHelper)) {
+            return;
+        }
+
+        contactsHelper.setLocale(currentLocale);
+        profileHelper.setLocale(currentLocale);
+        contactsHelper.rebuildSearchIndex();
+        prefs.edit().putString(PREF_LOCALE, currentLocale.toString()).commit();
     }
 
     /**
@@ -2233,6 +2322,9 @@ public class ContactsProvider2 extends AbstractContactsProvider
             db.execSQL(mSb.toString());
         }
 
+        final Set<Long> changedRawContacts = mTransactionContext.get().getChangedRawContactIds();
+        ContactsTableUtil.updateContactLastUpdateByRawContactId(db, changedRawContacts);
+
         // Update sync states.
         for (Map.Entry<Long, Object> entry : mTransactionContext.get().getUpdatedSyncStates()) {
             long id = entry.getKey();
@@ -2654,9 +2746,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
         DataRowHandler rowHandler = getDataRowHandler(mimeType);
         final SQLiteDatabase db = mDbHelper.get().getWritableDatabase();
         id = rowHandler.insert(db, mTransactionContext.get(), rawContactId, mValues);
-        if (!callerIsSyncAdapter) {
-            mTransactionContext.get().markRawContactDirty(rawContactId);
-        }
+        mTransactionContext.get().markRawContactDirtyAndChanged(rawContactId, callerIsSyncAdapter);
         mTransactionContext.get().rawContactUpdated(rawContactId);
         return id;
     }
@@ -2879,9 +2969,8 @@ public class ContactsProvider2 extends AbstractContactsProvider
                 String mimeType = c.getString(DataRowHandler.DataDeleteQuery.MIMETYPE);
                 DataRowHandler rowHandler = getDataRowHandler(mimeType);
                 count += rowHandler.delete(db, mTransactionContext.get(), c);
-                if (!callerIsSyncAdapter) {
-                    mTransactionContext.get().markRawContactDirty(rawContactId);
-                }
+                mTransactionContext.get().markRawContactDirtyAndChanged(rawContactId,
+                        callerIsSyncAdapter);
             }
         } finally {
             c.close();
@@ -2973,7 +3062,8 @@ public class ContactsProvider2 extends AbstractContactsProvider
                     if (c.getLong(1) != 0) {
                         final long rawContactId = c.getLong(0);
                         insertDataGroupMembership(rawContactId, result);
-                        mTransactionContext.get().markRawContactDirty(rawContactId);
+                        mTransactionContext.get().markRawContactDirtyAndChanged(rawContactId,
+                                callerIsSyncAdapter);
                     }
                 }
             } finally {
@@ -3564,7 +3654,9 @@ public class ContactsProvider2 extends AbstractContactsProvider
 
         mProviderStatusUpdateNeeded = true;
 
-        return db.delete(Tables.CONTACTS, Contacts._ID + "=" + contactId, null);
+        int result = ContactsTableUtil.deleteContact(db, contactId);
+        scheduleBackgroundTask(BACKGROUND_TASK_CLEAN_DELETE_LOG);
+        return result;
     }
 
     public int deleteRawContact(long rawContactId, long contactId, boolean callerIsSyncAdapter) {
@@ -3587,14 +3679,24 @@ public class ContactsProvider2 extends AbstractContactsProvider
         }
 
         if (callerIsSyncAdapter || rawContactIsLocal(rawContactId)) {
+
+            // When a raw contact is deleted, a sqlite trigger deletes the parent contact.
+            // TODO: all contact deletes was consolidated into ContactTableUtil but this one can't
+            // because it's in a trigger.  Consider removing trigger and replacing with java code.
+            // This has to happen before the raw contact is deleted since it relies on the number
+            // of raw contacts.
+            ContactsTableUtil.deleteContactIfSingleton(db, rawContactId);
+
             db.delete(Tables.PRESENCE,
                     PresenceColumns.RAW_CONTACT_ID + "=" + rawContactId, null);
             int count = db.delete(Tables.RAW_CONTACTS,
                     RawContacts._ID + "=" + rawContactId, null);
+
             mAggregator.get().updateAggregateData(mTransactionContext.get(), contactId);
+            mTransactionContext.get().markRawContactChangedOrDeletedOrInserted(rawContactId);
             return count;
         } else {
-            mDbHelper.get().removeContactIfSingleton(rawContactId);
+            ContactsTableUtil.deleteContactIfSingleton(db, rawContactId);
             return markRawContactAsDeleted(db, rawContactId, callerIsSyncAdapter);
         }
     }
@@ -4297,6 +4399,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
                 // and change accounts at the same time.)
                 mTransactionContext.get().rawContactInserted(rawContactId, accountId);
             }
+            mTransactionContext.get().markRawContactChangedOrDeletedOrInserted(rawContactId);
         }
         return count;
     }
@@ -4434,6 +4537,8 @@ public class ContactsProvider2 extends AbstractContactsProvider
                 values, Contacts.TIMES_CONTACTED);
         ContactsDatabaseHelper.copyLongValue(mValues, RawContacts.STARRED,
                 values, Contacts.STARRED);
+        mValues.put(Contacts.CONTACT_LAST_UPDATED_TIMESTAMP,
+                Clock.getInstance().currentTimeMillis());
 
         int rslt = db.update(Tables.CONTACTS, mValues, Contacts._ID + "=?",
                 mSelectionArgs1);
@@ -4578,7 +4683,15 @@ public class ContactsProvider2 extends AbstractContactsProvider
 
         // WARNING: This method can be run in either contacts mode or profile mode.  It is
         // absolutely imperative that no calls be made inside the following try block that can
-        // interact with the contacts DB.  Otherwise it is quite possible for a deadlock to occur.
+        // interact with a specific contacts or profile DB.  Otherwise it is quite possible for a
+        // deadlock to occur.  i.e. always use the current database in mDbHelper and do not access
+        // mContactsHelper or mProfileHelper directly.
+        //
+        // The problem may be a bit more subtle if you also access something that stores the current
+        // db instance in it's constructor.  updateSearchIndexInTransaction relies on the
+        // SearchIndexManager which upon construction, stores the current db. In this case,
+        // SearchIndexManager always contains the contact DB. This is why the
+        // updateSearchIndexInTransaction is protected with !isInProfileMode now.
         try {
             // First, remove stale rows from raw_contacts, groups, and related tables.
 
@@ -4603,8 +4716,9 @@ public class ContactsProvider2 extends AbstractContactsProvider
 
                     // getAccountIdOrNull() really shouldn't return null here, but just in case...
                     if (accountIdOrNull != null) {
+                        final String accountId = Long.toString(accountIdOrNull);
                         final String[] accountIdParams =
-                                new String[] {Long.toString(accountIdOrNull)};
+                                new String[] {accountId};
                         db.execSQL(
                                 "DELETE FROM " + Tables.GROUPS +
                                 " WHERE " + GroupsColumns.ACCOUNT_ID + " = ?",
@@ -4633,6 +4747,63 @@ public class ContactsProvider2 extends AbstractContactsProvider
                                         " FROM " + Tables.RAW_CONTACTS +
                                         " WHERE " + RawContactsColumns.ACCOUNT_ID + " = ?)",
                                         accountIdParams);
+
+                        // Delta api is only needed for regular contacts.
+                        if (!inProfileMode()) {
+                            // Contacts are deleted by a trigger on the raw_contacts table.
+                            // But we also need to insert the contact into the delete log.
+                            // This logic is being consolidated into the ContactsTableUtil.
+
+                            // deleteContactIfSingleton() does not work in this case because raw
+                            // contacts will be deleted in a single batch below.  Contacts with
+                            // multiple raw contacts in the same account will be missed.
+
+                            // Find all contacts that do not have raw contacts in other accounts.
+                            // These should be deleted.
+                            Cursor cursor = db.rawQuery(
+                                    "SELECT " + RawContactsColumns.CONCRETE_CONTACT_ID +
+                                            " FROM " + Tables.RAW_CONTACTS +
+                                            " WHERE " + RawContactsColumns.ACCOUNT_ID + " = ?1" +
+                                            " AND " + RawContactsColumns.CONCRETE_CONTACT_ID +
+                                            " NOT IN (" +
+                                            "    SELECT " + RawContactsColumns.CONCRETE_CONTACT_ID +
+                                            "    FROM " + Tables.RAW_CONTACTS +
+                                            "    WHERE " + RawContactsColumns.ACCOUNT_ID + " != ?1"
+                                            + ")", accountIdParams);
+                            try {
+                                while (cursor.moveToNext()) {
+                                    final long contactId = cursor.getLong(0);
+                                    ContactsTableUtil.deleteContact(db, contactId);
+                                }
+                            } finally {
+                                MoreCloseables.closeQuietly(cursor);
+                            }
+
+                            // If the contact was not deleted, it's last updated timestamp needs to
+                            // be refreshed since one of it's raw contacts got removed.
+                            // Find all contacts that will not be deleted (i.e. contacts with
+                            // raw contacts in other accounts)
+                            cursor = db.rawQuery(
+                                    "SELECT DISTINCT " + RawContactsColumns.CONCRETE_CONTACT_ID +
+                                            " FROM " + Tables.RAW_CONTACTS +
+                                            " WHERE " + RawContactsColumns.ACCOUNT_ID + " = ?1" +
+                                            " AND " + RawContactsColumns.CONCRETE_CONTACT_ID +
+                                            " IN (" +
+                                            "    SELECT " + RawContactsColumns.CONCRETE_CONTACT_ID +
+                                            "    FROM " + Tables.RAW_CONTACTS +
+                                            "    WHERE " + RawContactsColumns.ACCOUNT_ID + " != ?1"
+                                            + ")", accountIdParams);
+                            try {
+                                while (cursor.moveToNext()) {
+                                    final long contactId = cursor.getLong(0);
+                                    ContactsTableUtil.updateContactLastUpdateByContactId(db,
+                                            contactId);
+                                }
+                            } finally {
+                                MoreCloseables.closeQuietly(cursor);
+                            }
+                        }
+
                         db.execSQL(
                                 "DELETE FROM " + Tables.RAW_CONTACTS +
                                 " WHERE " + RawContactsColumns.ACCOUNT_ID + " = ?",
@@ -5110,7 +5281,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
             }
 
             case CONTACTS_AS_MULTI_VCARD: {
-                SimpleDateFormat dateFormat = new SimpleDateFormat("yyyyMMdd_HHmmss");
+                SimpleDateFormat dateFormat = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US);
                 String currentDateString = dateFormat.format(new Date()).toString();
                 return db.rawQuery(
                     "SELECT" +
@@ -5496,7 +5667,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
                     final String ftsMatchQuery =
                             searchDisplayName
                             ? SearchIndexManager.getFtsMatchQuery(filterParam,
-                                    FtsQueryBuilder.UNSCOPED_NORMALIZING)
+                                    FtsQueryBuilder.SCOPED_NAME_NORMALIZING)
                             : null;
                     if (!TextUtils.isEmpty(ftsMatchQuery)) {
                         sb.append(Data.RAW_CONTACT_ID + " IN " +
@@ -5505,7 +5676,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
                                 " JOIN " + Tables.RAW_CONTACTS +
                                 " ON (" + Tables.SEARCH_INDEX + "." + SearchIndexColumns.CONTACT_ID
                                         + "=" + RawContactsColumns.CONCRETE_CONTACT_ID + ")" +
-                                " WHERE " + SearchIndexColumns.NAME + " MATCH '");
+                                " WHERE " + Tables.SEARCH_INDEX + " MATCH '");
                         sb.append(ftsMatchQuery);
                         sb.append("')");
                         hasCondition = true;
@@ -5702,6 +5873,108 @@ public class ContactsProvider2 extends AbstractContactsProvider
                 break;
             }
 
+            case CONTACTABLES:
+            case CONTACTABLES_FILTER: {
+                setTablesAndProjectionMapForData(qb, uri, projection, false);
+
+                String filterParam = null;
+
+                final int uriPathSize = uri.getPathSegments().size();
+                if (uriPathSize > 3) {
+                    filterParam = uri.getLastPathSegment();
+                    if (TextUtils.isEmpty(filterParam)) {
+                        filterParam = null;
+                    }
+                }
+
+                // CONTACTABLES_FILTER but no query provided, return an empty cursor
+                if (uriPathSize > 2 && filterParam == null) {
+                    qb.appendWhere(" AND 0");
+                    break;
+                }
+
+                if (uri.getBooleanQueryParameter(Contactables.VISIBLE_CONTACTS_ONLY, false)) {
+                    qb.appendWhere(" AND " + Data.CONTACT_ID + " in " +
+                            Tables.DEFAULT_DIRECTORY);
+                    }
+
+                final StringBuilder sb = new StringBuilder();
+
+                // we only want data items that are either email addresses or phone numbers
+                sb.append(" AND (");
+                sb.append(DataColumns.MIMETYPE_ID + " IN (");
+                sb.append(mDbHelper.get().getMimeTypeIdForEmail());
+                sb.append(",");
+                sb.append(mDbHelper.get().getMimeTypeIdForPhone());
+                sb.append("))");
+
+                // Rest of the query is only relevant if we are handling CONTACTABLES_FILTER
+                if (uriPathSize < 3) {
+                    qb.appendWhere(sb);
+                    break;
+                }
+
+                // but we want all the email addresses and phone numbers that belong to
+                // all contacts that have any data items (or name) that match the query
+                sb.append(" AND ");
+                sb.append("(" + Data.CONTACT_ID + " IN (");
+
+                // All contacts where the email address data1 column matches the query
+                sb.append(
+                        "SELECT " + RawContacts.CONTACT_ID +
+                        " FROM " + Tables.DATA + " JOIN " + Tables.RAW_CONTACTS +
+                        " ON " + Tables.DATA + "." + Data.RAW_CONTACT_ID + "=" +
+                        Tables.RAW_CONTACTS + "." + RawContacts._ID +
+                        " WHERE (" + DataColumns.MIMETYPE_ID + "=");
+                sb.append(mDbHelper.get().getMimeTypeIdForEmail());
+
+                sb.append(" AND " + Data.DATA1 + " LIKE ");
+                DatabaseUtils.appendEscapedSQLString(sb, filterParam + '%');
+                sb.append(")");
+
+                // All contacts where the phone number matches the query (determined by checking
+                // Tables.PHONE_LOOKUP
+                final String number = PhoneNumberUtils.normalizeNumber(filterParam);
+                if (!TextUtils.isEmpty(number)) {
+                    sb.append("UNION SELECT DISTINCT " + RawContacts.CONTACT_ID +
+                            " FROM " + Tables.PHONE_LOOKUP + " JOIN " + Tables.RAW_CONTACTS +
+                            " ON (" + Tables.PHONE_LOOKUP + "." +
+                            PhoneLookupColumns.RAW_CONTACT_ID + "=" +
+                            Tables.RAW_CONTACTS + "." + RawContacts._ID + ")" +
+                            " WHERE " + PhoneLookupColumns.NORMALIZED_NUMBER + " LIKE '");
+                    sb.append(number);
+                    sb.append("%'");
+                }
+
+                // All contacts where the name matches the query (determined by checking
+                // Tables.SEARCH_INDEX
+                sb.append(
+                        " UNION SELECT " + Data.CONTACT_ID +
+                        " FROM " + Tables.DATA + " JOIN " + Tables.RAW_CONTACTS +
+                        " ON " + Tables.DATA + "." + Data.RAW_CONTACT_ID + "=" +
+                        Tables.RAW_CONTACTS + "." + RawContacts._ID +
+
+                        " WHERE " + Data.RAW_CONTACT_ID + " IN " +
+
+                        "(SELECT " + RawContactsColumns.CONCRETE_ID +
+                        " FROM " + Tables.SEARCH_INDEX +
+                        " JOIN " + Tables.RAW_CONTACTS +
+                        " ON (" + Tables.SEARCH_INDEX + "." + SearchIndexColumns.CONTACT_ID
+                        + "=" + RawContactsColumns.CONCRETE_CONTACT_ID + ")" +
+
+                        " WHERE " + SearchIndexColumns.NAME + " MATCH '");
+
+                final String ftsMatchQuery = SearchIndexManager.getFtsMatchQuery(
+                        filterParam, FtsQueryBuilder.UNSCOPED_NORMALIZING);
+                sb.append(ftsMatchQuery);
+                sb.append("')");
+
+                sb.append("))");
+                qb.appendWhere(sb);
+
+                break;
+            }
+
             case POSTALS: {
                 setTablesAndProjectionMapForData(qb, uri, projection, false);
                 qb.appendWhere(" AND " + DataColumns.MIMETYPE_ID + " = "
@@ -5782,7 +6055,13 @@ public class ContactsProvider2 extends AbstractContactsProvider
 
             case DATA:
             case PROFILE_DATA: {
-                setTablesAndProjectionMapForData(qb, uri, projection, false);
+                final String usageType = uri.getQueryParameter(DataUsageFeedback.USAGE_TYPE);
+                final int typeInt = getDataUsageFeedbackType(usageType, USAGE_TYPE_ALL);
+                setTablesAndProjectionMapForData(qb, uri, projection, false, typeInt);
+                if (uri.getBooleanQueryParameter(Data.VISIBLE_CONTACTS_ONLY, false)) {
+                    qb.appendWhere(" AND " + Data.CONTACT_ID + " in " +
+                            Tables.DEFAULT_DIRECTORY);
+                }
                 break;
             }
 
@@ -5982,7 +6261,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
 
             case SEARCH_SUGGESTIONS: {
                 return mGlobalSearchSupport.handleSearchSuggestionsQuery(
-                        db, uri, projection, limit);
+                        db, uri, projection, limit, cancellationSignal);
             }
 
             case SEARCH_SHORTCUT: {
@@ -5990,7 +6269,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
                 String filter = getQueryParameter(
                         uri, SearchManager.SUGGEST_COLUMN_INTENT_EXTRA_DATA);
                 return mGlobalSearchSupport.handleSearchShortcutRefresh(
-                        db, projection, lookupKey, filter);
+                        db, projection, lookupKey, filter, cancellationSignal);
             }
 
             case RAW_CONTACT_ENTITIES:
@@ -6032,6 +6311,21 @@ public class ContactsProvider2 extends AbstractContactsProvider
                 return completeName(uri, projection);
             }
 
+            case DELETED_CONTACTS: {
+                qb.setTables(Tables.DELETED_CONTACTS);
+                qb.setProjectionMap(sDeletedContactsProjectionMap);
+                break;
+            }
+
+            case DELETED_CONTACTS_ID: {
+                String id = uri.getLastPathSegment();
+                qb.setTables(Tables.DELETED_CONTACTS);
+                qb.setProjectionMap(sDeletedContactsProjectionMap);
+                qb.appendWhere(ContactsContract.DeletedContacts.CONTACT_ID + "=?");
+                selectionArgs = insertSelectionArg(selectionArgs, id);
+                break;
+            }
+
             default:
                 return mLegacyApiSupport.query(uri, projection, selection, selectionArgs,
                         sortOrder, limit);
@@ -6039,8 +6333,10 @@ public class ContactsProvider2 extends AbstractContactsProvider
 
         qb.setStrict(true);
 
+        // Auto-rewrite SORT_KEY_{PRIMARY, ALTERNATIVE} sort orders.
+        String localizedSortOrder = getLocalizedSortOrder(sortOrder);
         Cursor cursor =
-                query(db, qb, projection, selection, selectionArgs, sortOrder, groupBy,
+                query(db, qb, projection, selection, selectionArgs, localizedSortOrder, groupBy,
                 having, limit, cancellationSignal);
 
         if (readBooleanQueryParameter(uri, ContactCounts.ADDRESS_BOOK_INDEX_EXTRAS, false)) {
@@ -6053,6 +6349,34 @@ public class ContactsProvider2 extends AbstractContactsProvider
         }
 
         return cursor;
+    }
+
+
+    // Rewrites query sort orders using SORT_KEY_{PRIMARY, ALTERNATIVE}
+    // to use PHONEBOOK_BUCKET_{PRIMARY, ALTERNATIVE} as primary key; all
+    // other sort orders are returned unchanged. Preserves ordering
+    // (eg 'DESC') if present.
+    protected static String getLocalizedSortOrder(String sortOrder) {
+        String localizedSortOrder = sortOrder;
+        if (sortOrder != null) {
+            String sortKey;
+            String sortOrderSuffix = "";
+            int spaceIndex = sortOrder.indexOf(' ');
+            if (spaceIndex != -1) {
+                sortKey = sortOrder.substring(0, spaceIndex);
+                sortOrderSuffix = sortOrder.substring(spaceIndex);
+            } else {
+                sortKey = sortOrder;
+            }
+            if (TextUtils.equals(sortKey, Contacts.SORT_KEY_PRIMARY)) {
+                localizedSortOrder = ContactsColumns.PHONEBOOK_BUCKET_PRIMARY
+                    + sortOrderSuffix + ", " + sortOrder;
+            } else if (TextUtils.equals(sortKey, Contacts.SORT_KEY_ALTERNATIVE)) {
+                localizedSortOrder = ContactsColumns.PHONEBOOK_BUCKET_ALTERNATIVE
+                    + sortOrderSuffix + ", " + sortOrder;
+            }
+        }
+        return localizedSortOrder;
     }
 
 
@@ -6150,7 +6474,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
                 final long start = System.currentTimeMillis();
 
                 b = getFastScrollingIndexExtras(queryUri, db, qb, selection, selectionArgs,
-                        sortOrder, countExpression, cancellationSignal, getLocale());
+                        sortOrder, countExpression, cancellationSignal);
 
                 final long end = System.currentTimeMillis();
                 final int time = (int) (end - start);
@@ -6166,32 +6490,33 @@ public class ContactsProvider2 extends AbstractContactsProvider
     }
 
     private static final class AddressBookIndexQuery {
-        public static final String LETTER = "letter";
-        public static final String TITLE = "title";
+        public static final String NAME = "name";
+        public static final String BUCKET = "bucket";
+        public static final String LABEL = "label";
         public static final String COUNT = "count";
 
         public static final String[] COLUMNS = new String[] {
-                LETTER, TITLE, COUNT
+            NAME, BUCKET, LABEL, COUNT
         };
 
-        public static final int COLUMN_LETTER = 0;
-        public static final int COLUMN_TITLE = 1;
-        public static final int COLUMN_COUNT = 2;
+        public static final int COLUMN_NAME = 0;
+        public static final int COLUMN_BUCKET = 1;
+        public static final int COLUMN_LABEL = 2;
+        public static final int COLUMN_COUNT = 3;
 
-        // The first letter of the sort key column is what is used for the index headings.
-        public static final String SECTION_HEADING = "SUBSTR(%1$s,1,1)";
-
-        public static final String ORDER_BY = LETTER + " COLLATE " + PHONEBOOK_COLLATOR_NAME;
+        public static final String GROUP_BY = BUCKET + ", " + LABEL;
+        public static final String ORDER_BY =
+            BUCKET + ", " +  NAME + " COLLATE " + PHONEBOOK_COLLATOR_NAME;
     }
 
     /**
-     * Computes counts by the address book index titles and returns it as {@link Bundle} which
+     * Computes counts by the address book index labels and returns it as {@link Bundle} which
      * will be appended to a {@link Cursor} as extras.
      */
     private static Bundle getFastScrollingIndexExtras(final Uri queryUri, final SQLiteDatabase db,
             final SQLiteQueryBuilder qb, final String selection, final String[] selectionArgs,
             final String sortOrder, String countExpression,
-            final CancellationSignal cancellationSignal, final Locale currentLocale) {
+            final CancellationSignal cancellationSignal) {
         String sortKey;
 
         // The sort order suffix could be something like "DESC".
@@ -6210,72 +6535,54 @@ public class ContactsProvider2 extends AbstractContactsProvider
             sortKey = Contacts.SORT_KEY_PRIMARY;
         }
 
+        String bucketKey;
+        String labelKey;
+        if (TextUtils.equals(sortKey, Contacts.SORT_KEY_PRIMARY)) {
+            bucketKey = ContactsColumns.PHONEBOOK_BUCKET_PRIMARY;
+            labelKey = ContactsColumns.PHONEBOOK_LABEL_PRIMARY;
+        } else if (TextUtils.equals(sortKey, Contacts.SORT_KEY_ALTERNATIVE)) {
+            bucketKey = ContactsColumns.PHONEBOOK_BUCKET_ALTERNATIVE;
+            labelKey = ContactsColumns.PHONEBOOK_LABEL_ALTERNATIVE;
+        } else {
+            return null;
+        }
+
         HashMap<String, String> projectionMap = Maps.newHashMap();
-        String sectionHeading = String.format(Locale.US, AddressBookIndexQuery.SECTION_HEADING,
-                sortKey);
-        projectionMap.put(AddressBookIndexQuery.LETTER,
-                sectionHeading + " AS " + AddressBookIndexQuery.LETTER);
+        projectionMap.put(AddressBookIndexQuery.NAME,
+                sortKey + " AS " + AddressBookIndexQuery.NAME);
+        projectionMap.put(AddressBookIndexQuery.BUCKET,
+                bucketKey + " AS " + AddressBookIndexQuery.BUCKET);
+        projectionMap.put(AddressBookIndexQuery.LABEL,
+                labelKey + " AS " + AddressBookIndexQuery.LABEL);
 
         // If "what to count" is not specified, we just count all records.
         if (TextUtils.isEmpty(countExpression)) {
             countExpression = "*";
         }
 
-        /**
-         * Use the GET_PHONEBOOK_INDEX function, which is an android extension for SQLite3,
-         * to map the first letter of the sort key to a character that is traditionally
-         * used in phonebooks to represent that letter.  For example, in Korean it will
-         * be the first consonant in the letter; for Japanese it will be Hiragana rather
-         * than Katakana.
-         */
-        projectionMap.put(AddressBookIndexQuery.TITLE,
-                "GET_PHONEBOOK_INDEX(" + sectionHeading + ",'" + currentLocale.toString() + "')"
-                        + " AS " + AddressBookIndexQuery.TITLE);
         projectionMap.put(AddressBookIndexQuery.COUNT,
                 "COUNT(" + countExpression + ") AS " + AddressBookIndexQuery.COUNT);
         qb.setProjectionMap(projectionMap);
+        String orderBy = AddressBookIndexQuery.BUCKET + sortOrderSuffix
+            + ", " + AddressBookIndexQuery.NAME + " COLLATE "
+            + PHONEBOOK_COLLATOR_NAME + sortOrderSuffix;
 
         Cursor indexCursor = qb.query(db, AddressBookIndexQuery.COLUMNS, selection, selectionArgs,
-                AddressBookIndexQuery.ORDER_BY, null /* having */,
-                AddressBookIndexQuery.ORDER_BY + sortOrderSuffix,
-                null, cancellationSignal);
+                AddressBookIndexQuery.GROUP_BY, null /* having */,
+                orderBy, null, cancellationSignal);
 
         try {
-            int groupCount = indexCursor.getCount();
-            String titles[] = new String[groupCount];
-            int counts[] = new int[groupCount];
-            int indexCount = 0;
-            String currentTitle = null;
+            int numLabels = indexCursor.getCount();
+            String labels[] = new String[numLabels];
+            int counts[] = new int[numLabels];
 
-            // Since GET_PHONEBOOK_INDEX is a many-to-1 function, we may end up
-            // with multiple entries for the same title.  The following code
-            // collapses those duplicates.
-            for (int i = 0; i < groupCount; i++) {
+            for (int i = 0; i < numLabels; i++) {
                 indexCursor.moveToNext();
-                String title = indexCursor.getString(AddressBookIndexQuery.COLUMN_TITLE);
-                if (title == null) {
-                    title = "";
-                }
-                int count = indexCursor.getInt(AddressBookIndexQuery.COLUMN_COUNT);
-                if (indexCount == 0 || !TextUtils.equals(title, currentTitle)) {
-                    titles[indexCount] = currentTitle = title;
-                    counts[indexCount] = count;
-                    indexCount++;
-                } else {
-                    counts[indexCount - 1] += count;
-                }
+                labels[i] = indexCursor.getString(AddressBookIndexQuery.COLUMN_LABEL);
+                counts[i] = indexCursor.getInt(AddressBookIndexQuery.COLUMN_COUNT);
             }
 
-            if (indexCount < groupCount) {
-                String[] newTitles = new String[indexCount];
-                System.arraycopy(titles, 0, newTitles, 0, indexCount);
-                titles = newTitles;
-
-                int[] newCounts = new int[indexCount];
-                System.arraycopy(counts, 0, newCounts, 0, indexCount);
-                counts = newCounts;
-            }
-            return FastScrollingIndexCache.buildExtraBundle(titles, counts);
+            return FastScrollingIndexCache.buildExtraBundle(labels, counts);
         } finally {
             indexCursor.close();
         }
@@ -6861,9 +7168,8 @@ public class ContactsProvider2 extends AbstractContactsProvider
         appendDataPresenceJoin(sb, projection, DataColumns.CONCRETE_ID);
         appendDataStatusUpdateJoin(sb, projection, DataColumns.CONCRETE_ID);
 
-        if (usageType != null) {
-            appendDataUsageStatJoin(sb, usageType, DataColumns.CONCRETE_ID);
-        }
+        appendDataUsageStatJoin(sb, usageType == null ? USAGE_TYPE_ALL : usageType,
+                DataColumns.CONCRETE_ID);
 
         qb.setTables(sb.toString());
 
@@ -6960,9 +7266,29 @@ public class ContactsProvider2 extends AbstractContactsProvider
     }
 
     private void appendDataUsageStatJoin(StringBuilder sb, int usageType, String dataIdColumn) {
-        sb.append(" LEFT OUTER JOIN " + Tables.DATA_USAGE_STAT +
-                " ON (" + DataUsageStatColumns.CONCRETE_DATA_ID + "=" + dataIdColumn +
-                " AND " + DataUsageStatColumns.CONCRETE_USAGE_TYPE + "=" + usageType + ")");
+        if (usageType != USAGE_TYPE_ALL) {
+            sb.append(" LEFT OUTER JOIN " + Tables.DATA_USAGE_STAT +
+                    " ON (" + DataUsageStatColumns.CONCRETE_DATA_ID + "=");
+            sb.append(dataIdColumn);
+            sb.append(" AND " + DataUsageStatColumns.CONCRETE_USAGE_TYPE + "=");
+            sb.append(usageType);
+            sb.append(")");
+        } else {
+            sb.append(
+                    " LEFT OUTER JOIN " +
+                        "(SELECT " +
+                            DataUsageStatColumns.CONCRETE_DATA_ID + ", " +
+                            "SUM(" + DataUsageStatColumns.CONCRETE_TIMES_USED +
+                                ") as " + DataUsageStatColumns.TIMES_USED + ", " +
+                            "MAX(" + DataUsageStatColumns.CONCRETE_LAST_TIME_USED +
+                                ") as " + DataUsageStatColumns.LAST_TIME_USED +
+                        " FROM " + Tables.DATA_USAGE_STAT + " GROUP BY " +
+                            DataUsageStatColumns.DATA_ID + ") as " + Tables.DATA_USAGE_STAT
+                    );
+            sb.append(" ON (" + DataUsageStatColumns.CONCRETE_DATA_ID + "=");
+            sb.append(dataIdColumn);
+            sb.append(")");
+        }
     }
 
     private void appendContactPresenceJoin(StringBuilder sb, String[] projection,
@@ -7187,6 +7513,22 @@ public class ContactsProvider2 extends AbstractContactsProvider
     }
 
     public AssetFileDescriptor openAssetFileLocal(Uri uri, String mode)
+            throws FileNotFoundException {
+        // In some cases to implement this, we will need to do further queries
+        // on the content provider.  We have already done the permission check for
+        // access to the uri given here, so we don't need to do further checks on
+        // the queries we will do to populate it.  Also this makes sure that when
+        // we go through any app ops checks for those queries that the calling uid
+        // and package names match at that point.
+        final long ident = Binder.clearCallingIdentity();
+        try {
+            return openAssetFileInner(uri, mode);
+        } finally {
+            Binder.restoreCallingIdentity(ident);
+        }
+    }
+
+    private AssetFileDescriptor openAssetFileInner(Uri uri, String mode)
             throws FileNotFoundException {
 
         final boolean writing = mode.contains("w");
@@ -8313,7 +8655,16 @@ public class ContactsProvider2 extends AbstractContactsProvider
      * @return a boolean indicating if the query is one word or not
      */
     private boolean isSingleWordQuery(String query) {
-        return query.split(QUERY_TOKENIZER_REGEX).length == 1;
+        // Split can remove empty trailing tokens but cannot remove starting empty tokens so we
+        // have to loop.
+        String[] tokens = query.split(QUERY_TOKENIZER_REGEX, 0);
+        int count = 0;
+        for (String token : tokens) {
+            if (!"".equals(token)) {
+                count++;
+            }
+        }
+        return count == 1;
     }
 
     /**
