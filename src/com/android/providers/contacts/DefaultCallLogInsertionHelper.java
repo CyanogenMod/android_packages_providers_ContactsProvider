@@ -46,7 +46,8 @@ import java.util.Set;
     private final CountryMonitor mCountryMonitor;
     private PhoneNumberUtil mPhoneNumberUtil;
     private PhoneNumberOfflineGeocoder mPhoneNumberOfflineGeocoder;
-    private final Locale mLocale;
+    private Locale mLocale;
+    private Context mContext;
 
     public static synchronized DefaultCallLogInsertionHelper getInstance(Context context) {
         if (sInstance == null) {
@@ -58,6 +59,7 @@ import java.util.Set;
     private DefaultCallLogInsertionHelper(Context context) {
         mCountryMonitor = new CountryMonitor(context);
         mLocale = context.getResources().getConfiguration().locale;
+        mContext = context;
     }
 
     @Override
@@ -105,6 +107,7 @@ import java.util.Set;
     @Override
     public String getGeocodedLocationFor(String number, String countryIso) {
         PhoneNumber structuredPhoneNumber = parsePhoneNumber(number, countryIso);
+        mLocale = mContext.getResources().getConfiguration().locale;
         if (structuredPhoneNumber != null) {
             return getPhoneNumberOfflineGeocoder().getDescriptionForNumber(
                     structuredPhoneNumber, mLocale);
