@@ -874,6 +874,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
             .add(PhoneLookup._ID, "contacts_view." + Contacts._ID)
             .add(PhoneLookup.LOOKUP_KEY, "contacts_view." + Contacts.LOOKUP_KEY)
             .add(PhoneLookup.DISPLAY_NAME, "contacts_view." + Contacts.DISPLAY_NAME)
+            .add(Contacts.DISPLAY_NAME_ALTERNATIVE, "contacts_view." + Contacts.DISPLAY_NAME_ALTERNATIVE)
             .add(PhoneLookup.LAST_TIME_CONTACTED, "contacts_view." + Contacts.LAST_TIME_CONTACTED)
             .add(PhoneLookup.TIMES_CONTACTED, "contacts_view." + Contacts.TIMES_CONTACTED)
             .add(PhoneLookup.STARRED, "contacts_view." + Contacts.STARRED)
