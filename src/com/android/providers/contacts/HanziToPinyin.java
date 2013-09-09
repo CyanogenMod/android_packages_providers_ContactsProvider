@@ -19,6 +19,7 @@ package com.android.providers.contacts;
 import android.text.TextUtils;
 import android.util.Log;
 
+import java.text.Collator;
 import java.util.ArrayList;
 import java.util.Locale;
 
@@ -36,6 +37,32 @@ public class HanziToPinyin {
     private static HanziToPinyin sInstance;
     private Transliterator mPinyinTransliterator;
     private Transliterator mAsciiTransliterator;
+
+    private static final Collator COLLATOR = Collator.getInstance(Locale.CHINA);
+    private static final String[] MULTINAMES = {
+        "\u590f","\u77bf","\u66fe","\u77f3","\u89e3","\u85cf","\u7fdf","\u90fd",
+        "\u516d","\u8584","\u8d3e","\u5c45","\u67e5","\u76db","\u5854","\u548c",
+        "\u84dd","\u6bb7","\u4e7e","\u9646","\u4e5c","\u961a","\u53f6","\u5f3a",
+        "\u6c64","\u4e07","\u6c88","\u4ec7","\u5357","\u5355","\u535c","\u9e1f",
+        "\u601d","\u5bfb","\u65bc","\u4f59","\u6d45","\u6d63","\u65e0","\u4fe1",
+        "\u8a31","\u9f50","\u4fde","\u82e5", };
+
+    private static final byte[][] MULTIPYS = {
+        { 88, 73, 65, 0, 0, 0 }, { 81, 85, 0, 0, 0, 0 }, { 90, 69, 78, 71, 0, 0 },
+        { 83, 72, 73, 0, 0, 0 }, { 88, 73, 69, 0, 0, 0 }, { 90, 65, 78, 71, 0, 0 },
+        { 90, 72, 65, 73, 0, 0 }, { 68, 85, 0, 0, 0, 0 }, { 76, 85, 0, 0, 0, 0 },
+        { 66, 79, 0, 0, 0, 0 }, { 74, 73, 65, 0, 0, 0 }, { 74, 85, 0, 0, 0, 0 },
+        { 90, 72, 65, 0, 0, 0 }, { 83, 72, 69, 78, 71, 0 }, { 84, 65, 0, 0, 0, 0 },
+        { 72, 69, 0, 0, 0, 0 }, { 76, 65, 78, 0, 0, 0 }, { 89, 73, 78, 0, 0, 0 },
+        { 81, 73, 65, 78, 0, 0 }, { 76, 85, 0, 0, 0, 0 }, { 78, 73, 69, 0, 0, 0 },
+        { 75, 65, 78, 0, 0, 0 }, { 89, 69, 0, 0, 0, 0 }, { 81, 73, 65, 78, 71, 0 },
+        { 84, 65, 78, 71, 0, 0 }, { 87, 65, 78, 0, 0, 0 }, { 83, 72, 69, 78, 0, 0 },
+        { 81, 73, 85, 0, 0, 0 }, { 78, 65, 78, 0, 0, 0 }, { 83, 72, 65, 78, 0, 0 },
+        { 66, 85, 0, 0, 0, 0 }, { 78, 73, 65, 79, 0, 0 }, { 83, 73, 0, 0, 0, 0 },
+        { 88, 85, 78, 0, 0, 0 }, { 89, 85, 0, 0, 0, 0 }, { 89, 85, 0, 0, 0, 0 },
+        { 81, 73, 65, 78, 0, 0 }, { 87, 65, 78, 0, 0, 0 }, { 87, 85, 0, 0, 0, 0 },
+        { 88, 73, 78, 0, 0, 0 }, { 88, 85, 0, 0, 0, 0 }, { 81, 73, 0, 0, 0, 0 },
+        { 89, 85, 0, 0, 0, 0 }, { 82, 85, 79, 0, 0, 0 }, };
 
     public static class Token {
         /**
@@ -94,7 +121,34 @@ public class HanziToPinyin {
         }
     }
 
-    private void tokenize(char character, Token token) {
+    /**
+     * Check if the first name is multi-pinyin
+     *
+     * @return right pinyin for this first name
+     */
+    private static String getMPinyin(final String firstName) {
+        int offset, cmp;
+        cmp = -1;
+
+        for (offset = 0; offset < MULTINAMES.length; offset++) {
+            cmp = COLLATOR.compare(firstName, MULTINAMES[offset]);
+            if (cmp == 0) {
+                break;
+            }
+        }
+
+        if (cmp != 0) {
+            return null;
+        } else {
+            StringBuilder pinyin = new StringBuilder();
+            for (int j = 0; j < MULTIPYS[offset].length && MULTIPYS[offset][j] != 0; j++) {
+                pinyin.append((char) MULTIPYS[offset][j]);
+            }
+            return pinyin.toString();
+        }
+    }
+
+    private void tokenize(char character, Token token, boolean isFirstName) {
         token.source = Character.toString(character);
 
         // ASCII
@@ -113,6 +167,14 @@ public class HanziToPinyin {
         }
 
         token.type = Token.PINYIN;
+
+        if (isFirstName) {
+            token.target = getMPinyin(Character.toString(character));
+            if (token.target != null) {
+                return;
+            }
+        }
+
         token.target = mPinyinTransliterator.transliterate(token.source);
         if (TextUtils.isEmpty(token.target) ||
             TextUtils.equals(token.source, token.target)) {
@@ -137,6 +199,7 @@ public class HanziToPinyin {
         final StringBuilder sb = new StringBuilder();
         int tokenType = Token.LATIN;
         Token token = new Token();
+        boolean firstname;
 
         // Go through the input, create a new token when
         // a. Token type changed
@@ -149,7 +212,7 @@ public class HanziToPinyin {
                     addToken(sb, tokens, tokenType);
                 }
             } else {
-                tokenize(character, token);
+                tokenize(character, token, i == 0);
                 if (token.type == Token.PINYIN) {
                     if (sb.length() > 0) {
                         addToken(sb, tokens, tokenType);
