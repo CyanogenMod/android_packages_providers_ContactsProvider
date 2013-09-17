@@ -16,13 +16,29 @@
 package com.android.providers.contacts;
 
 import android.content.Context;
+import android.content.ContentValues;
+import android.provider.ContactsContract.Data;
 
 import com.android.providers.contacts.aggregation.ContactAggregator;
+import com.android.providers.contacts.SearchIndexManager.IndexBuilder;
 
 public class DataRowHandlerForCustomMimetype extends DataRowHandler {
 
     public DataRowHandlerForCustomMimetype(Context context,
             ContactsDatabaseHelper dbHelper, ContactAggregator aggregator, String mimetype) {
         super(context, dbHelper, aggregator, mimetype);
+    }
+    @Override
+    public boolean hasSearchableData() {
+        return true;
+    }
+    @Override
+    public boolean containsSearchableColumns(ContentValues values) {
+        return values.containsKey(Data.DATA1);
+    }
+
+    @Override
+    public void appendSearchableData(IndexBuilder builder) {
+        builder.appendContentFromColumn(Data.DATA1);
     }
 }
