@@ -25,7 +25,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
-import android.database.MemoryCursor;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.ParcelFileDescriptor;
@@ -100,28 +99,12 @@ public class VoicemailContentProvider extends ContentProvider
 
     @Override
     public Uri insert(Uri uri, ContentValues values) {
-        if (getContext().isPrivacyGuardEnabled()) {
-            return null;
-        }
         UriData uriData = checkPermissionsAndCreateUriData(uri, values);
         return getTableDelegate(uriData).insert(uriData, values);
     }
 
     @Override
-    public Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs, String sortOrder) {
-        Cursor c = queryInternal(uri, projection, selection, selectionArgs, sortOrder);
-
-        if (getContext().isPrivacyGuardEnabled()) {
-            Log.d("VoicemailContentProvider", "Voicemail query from application in incognito mode! pid=" + Binder.getCallingPid());
-            MemoryCursor mc = new MemoryCursor(null, c.getColumnNames());
-            c.close();
-            return mc;
-        }
-
-        return c;
-    }
-
-    private Cursor queryInternal(Uri uri, String[] projection, String selection, String[] selectionArgs,
+    public Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs,
             String sortOrder) {
         UriData uriData = checkPermissionsAndCreateUriDataForReadOperation(uri);
         SelectionBuilder selectionBuilder = new SelectionBuilder(selection);
@@ -132,9 +115,6 @@ public class VoicemailContentProvider extends ContentProvider
 
     @Override
     public int update(Uri uri, ContentValues values, String selection, String[] selectionArgs) {
-        if (getContext().isPrivacyGuardEnabled()) {
-            return 0;
-        }
         UriData uriData = checkPermissionsAndCreateUriData(uri, values);
         SelectionBuilder selectionBuilder = new SelectionBuilder(selection);
         selectionBuilder.addClause(getPackageRestrictionClause());
@@ -144,9 +124,6 @@ public class VoicemailContentProvider extends ContentProvider
 
     @Override
     public int delete(Uri uri, String selection, String[] selectionArgs) {
-        if (getContext().isPrivacyGuardEnabled()) {
-            return 0;
-        }
         UriData uriData = checkPermissionsAndCreateUriData(uri);
         SelectionBuilder selectionBuilder = new SelectionBuilder(selection);
         selectionBuilder.addClause(getPackageRestrictionClause());
