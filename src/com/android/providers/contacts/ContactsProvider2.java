@@ -92,6 +92,7 @@ import android.provider.ContactsContract.DisplayPhoto;
 import android.provider.ContactsContract.Groups;
 import android.provider.ContactsContract.PhoneLookup;
 import android.provider.ContactsContract.PhotoFiles;
+import android.provider.ContactsContract.PinnedPositions;
 import android.provider.ContactsContract.Profile;
 import android.provider.ContactsContract.ProviderStatus;
 import android.provider.ContactsContract.RawContacts;
@@ -156,6 +157,8 @@ import com.google.android.collect.Sets;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 
+import libcore.io.IoUtils;
+
 import java.io.BufferedWriter;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -177,6 +180,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 
@@ -376,6 +380,8 @@ public class ContactsProvider2 extends AbstractContactsProvider
     private static final int DELETED_CONTACTS = 23000;
     private static final int DELETED_CONTACTS_ID = 23001;
 
+    private static final int PINNED_POSITION_UPDATE = 24001;
+
     // Inserts into URIs in this map will direct to the profile database if the parent record's
     // value (looked up from the ContentValues object with the key specified by the value in this
     // map) is in the profile ID-space (see {@link ProfileDatabaseHelper#PROFILE_ID_SPACE}).
@@ -498,21 +504,45 @@ public class ContactsProvider2 extends AbstractContactsProvider
             " SET " + RawContacts.VERSION + " = " + RawContacts.VERSION + " + 1" +
             " WHERE " + RawContacts._ID + " IN (";
 
-    // Current contacts - those contacted within the last 3 days (in seconds)
-    private static final long LAST_TIME_USED_CURRENT_SEC = 3 * 24 * 60 * 60;
+    /** Sql for undemoting a demoted contact **/
+    private static final String UNDEMOTE_CONTACT =
+            "UPDATE " + Tables.CONTACTS +
+            " SET " + Contacts.PINNED + " = " + PinnedPositions.UNPINNED +
+            " WHERE " + Contacts._ID + " = ?1 AND " + Contacts.PINNED + " <= " +
+            PinnedPositions.DEMOTED;
 
-    // Recent contacts - those contacted within the last 30 days (in seconds)
-    private static final long LAST_TIME_USED_RECENT_SEC = 30 * 24 * 60 * 60;
+    /** Sql for undemoting a demoted raw contact **/
+    private static final String UNDEMOTE_RAW_CONTACT =
+            "UPDATE " + Tables.RAW_CONTACTS +
+            " SET " + RawContacts.PINNED + " = " + PinnedPositions.UNPINNED +
+            " WHERE " + RawContacts.CONTACT_ID + " = ?1 AND " + Contacts.PINNED + " <= " +
+            PinnedPositions.DEMOTED;
+
+    // Contacts contacted within the last 3 days (in seconds)
+    private static final long LAST_TIME_USED_3_DAYS_SEC = 3L * 24 * 60 * 60;
+
+    // Contacts contacted within the last 7 days (in seconds)
+    private static final long LAST_TIME_USED_7_DAYS_SEC = 7L * 24 * 60 * 60;
+
+    // Contacts contacted within the last 14 days (in seconds)
+    private static final long LAST_TIME_USED_14_DAYS_SEC = 14L * 24 * 60 * 60;
+
+    // Contacts contacted within the last 30 days (in seconds)
+    private static final long LAST_TIME_USED_30_DAYS_SEC = 30L * 24 * 60 * 60;
 
     private static final String TIME_SINCE_LAST_USED_SEC =
             "(strftime('%s', 'now') - " + DataUsageStatColumns.LAST_TIME_USED + "/1000)";
 
     private static final String SORT_BY_DATA_USAGE =
-            "(CASE WHEN " + TIME_SINCE_LAST_USED_SEC + " < " + LAST_TIME_USED_CURRENT_SEC +
+            "(CASE WHEN " + TIME_SINCE_LAST_USED_SEC + " < " + LAST_TIME_USED_3_DAYS_SEC +
             " THEN 0 " +
-                    " WHEN " + TIME_SINCE_LAST_USED_SEC + " < " + LAST_TIME_USED_RECENT_SEC +
+                    " WHEN " + TIME_SINCE_LAST_USED_SEC + " < " + LAST_TIME_USED_7_DAYS_SEC +
             " THEN 1 " +
-            " ELSE 2 END), " +
+                    " WHEN " + TIME_SINCE_LAST_USED_SEC + " < " + LAST_TIME_USED_14_DAYS_SEC +
+            " THEN 2 " +
+                    " WHEN " + TIME_SINCE_LAST_USED_SEC + " < " + LAST_TIME_USED_30_DAYS_SEC +
+            " THEN 3 " +
+            " ELSE 4 END), " +
             DataUsageStatColumns.TIMES_USED + " DESC";
 
     /*
@@ -529,7 +559,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
         + Data.IS_SUPER_PRIMARY + " DESC, "
         + SORT_BY_DATA_USAGE + ", "
         + Contacts.IN_VISIBLE_GROUP + " DESC, "
-        + Contacts.DISPLAY_NAME + ", "
+        + Contacts.DISPLAY_NAME + " COLLATE LOCALIZED ASC, "
         + Data.CONTACT_ID + ", "
         + Data.IS_PRIMARY + " DESC";
 
@@ -582,6 +612,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
             .add(ContactsColumns.PHONEBOOK_LABEL_ALTERNATIVE)
             .add(ContactsColumns.PHONEBOOK_BUCKET_ALTERNATIVE)
             .add(Contacts.STARRED)
+            .add(Contacts.PINNED)
             .add(Contacts.TIMES_CONTACTED)
             .add(Contacts.HAS_PHONE_NUMBER)
             .add(Contacts.CONTACT_LAST_UPDATED_TIMESTAMP)
@@ -724,27 +755,11 @@ public class ContactsProvider2 extends AbstractContactsProvider
 
     /**
      * Used for Strequent Uri with {@link ContactsContract#STREQUENT_PHONE_ONLY}, which allows
-     * users to obtain part of Data columns. Right now Starred part just returns NULL for
-     * those data columns (frequent part should return real ones in data table).
-     **/
-    private static final ProjectionMap sStrequentPhoneOnlyStarredProjectionMap
-            = ProjectionMap.builder()
-            .addAll(sContactsProjectionMap)
-            .add(DataUsageStatColumns.TIMES_USED,
-                    String.valueOf(Long.MAX_VALUE))
-            .add(DataUsageStatColumns.LAST_TIME_USED, String.valueOf(Long.MAX_VALUE))
-            .add(Phone.NUMBER, "NULL")
-            .add(Phone.TYPE, "NULL")
-            .add(Phone.LABEL, "NULL")
-            .build();
-
-    /**
-     * Used for Strequent Uri with {@link ContactsContract#STREQUENT_PHONE_ONLY}, which allows
      * users to obtain part of Data columns. We hard-code {@link Contacts#IS_USER_PROFILE} to NULL,
      * because sContactsProjectionMap specifies a field that doesn't exist in the view behind the
      * query that uses this projection map.
      **/
-    private static final ProjectionMap sStrequentPhoneOnlyFrequentProjectionMap
+    private static final ProjectionMap sStrequentPhoneOnlyProjectionMap
             = ProjectionMap.builder()
             .addAll(sContactsProjectionMap)
             .add(DataUsageStatColumns.TIMES_USED, DataUsageStatColumns.CONCRETE_TIMES_USED)
@@ -752,6 +767,8 @@ public class ContactsProvider2 extends AbstractContactsProvider
             .add(Phone.NUMBER)
             .add(Phone.TYPE)
             .add(Phone.LABEL)
+            .add(Phone.IS_SUPER_PRIMARY)
+            .add(Phone.CONTACT_ID)
             .add(Contacts.IS_USER_PROFILE, "NULL")
             .build();
 
@@ -785,6 +802,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
             .add(RawContacts.CUSTOM_RINGTONE)
             .add(RawContacts.SEND_TO_VOICEMAIL)
             .add(RawContacts.STARRED)
+            .add(RawContacts.PINNED)
             .add(RawContacts.AGGREGATION_MODE)
             .add(RawContacts.RAW_CONTACT_IS_USER_PROFILE)
             .addAll(sRawContactColumns)
@@ -1256,6 +1274,9 @@ public class ContactsProvider2 extends AbstractContactsProvider
 
         matcher.addURI(ContactsContract.AUTHORITY, "deleted_contacts", DELETED_CONTACTS);
         matcher.addURI(ContactsContract.AUTHORITY, "deleted_contacts/#", DELETED_CONTACTS_ID);
+
+        matcher.addURI(ContactsContract.AUTHORITY, "pinned_position_update",
+                PINNED_POSITION_UPDATE);
     }
 
     private static class DirectoryInfo {
@@ -1483,7 +1504,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
         mLegacyApiSupport = new LegacyApiSupport(context, mContactsHelper, this,
                 mGlobalSearchSupport);
         mCurrentLocale = getLocale();
-        mNameSplitter = mContactsHelper.createNameSplitter();
+        mNameSplitter = mContactsHelper.createNameSplitter(mCurrentLocale);
         mNameLookupBuilder = new StructuredNameLookupBuilder(mNameSplitter);
         mPostalSplitter = new PostalSplitter(mCurrentLocale);
         mCommonNicknameCache = new CommonNicknameCache(mContactsHelper.getReadableDatabase());
@@ -1777,13 +1798,12 @@ public class ContactsProvider2 extends AbstractContactsProvider
         // No accounts/no contacts status is true if there are no account and
         // there are no contacts or one profile contact
         if (mContactsAccountCount == 0) {
-            long contactsNum = DatabaseUtils.queryNumEntries(mContactsHelper.getReadableDatabase(),
-                    Tables.CONTACTS, null);
+            boolean isContactsEmpty = DatabaseUtils.queryIsEmpty(mContactsHelper.getReadableDatabase(), Tables.CONTACTS);
             long profileNum = DatabaseUtils.queryNumEntries(mProfileHelper.getReadableDatabase(),
                     Tables.CONTACTS, null);
 
             // TODO: Different status if there is a profile but no contacts?
-            if (contactsNum == 0 && profileNum <= 1) {
+            if (isContactsEmpty && profileNum <= 1) {
                 setProviderStatus(ProviderStatus.STATUS_NO_ACCOUNTS_NO_CONTACTS);
             } else {
                 setProviderStatus(ProviderStatus.STATUS_NORMAL);
@@ -1967,6 +1987,23 @@ public class ContactsProvider2 extends AbstractContactsProvider
         }
     }
 
+    private int getIntValue(ContentValues values, String key, int defaultValue) {
+        final Integer value = values.getAsInteger(key);
+        return value != null ? value : defaultValue;
+    }
+
+    private boolean flagExists(ContentValues values, String key) {
+        return values.getAsInteger(key) != null;
+    }
+
+    private boolean flagIsSet(ContentValues values, String key) {
+        return getIntValue(values, key, 0) != 0;
+    }
+
+    private boolean flagIsClear(ContentValues values, String key) {
+        return getIntValue(values, key, 1) == 0;
+    }
+
     /**
      * Determines whether the given URI should be directed to the profile
      * database rather than the contacts database.  This is true under either
@@ -1999,11 +2036,9 @@ public class ContactsProvider2 extends AbstractContactsProvider
         int match = sUriMatcher.match(uri);
         if (INSERT_URI_ID_VALUE_MAP.containsKey(match)) {
             String idField = INSERT_URI_ID_VALUE_MAP.get(match);
-            if (values.containsKey(idField)) {
-                long id = values.getAsLong(idField);
-                if (ContactsContract.isProfileId(id)) {
-                    return true;
-                }
+            Long id = values.getAsLong(idField);
+            if (id != null && ContactsContract.isProfileId(id)) {
+                return true;
             }
         }
         return false;
@@ -2617,8 +2652,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
         mValues.remove(RawContacts.DATA_SET);
         mValues.put(RawContactsColumns.ACCOUNT_ID, accountId);
 
-        if (values.containsKey(RawContacts.DELETED)
-                && values.getAsInteger(RawContacts.DELETED) != 0) {
+        if (flagIsSet(values, RawContacts.DELETED)) {
             mValues.put(RawContacts.AGGREGATION_MODE, RawContacts.AGGREGATION_MODE_DISABLED);
         }
 
@@ -2626,10 +2660,8 @@ public class ContactsProvider2 extends AbstractContactsProvider
 
         long rawContactId = db.insert(Tables.RAW_CONTACTS,
                 RawContacts.CONTACT_ID, mValues);
-        int aggregationMode = RawContacts.AGGREGATION_MODE_DEFAULT;
-        if (mValues.containsKey(RawContacts.AGGREGATION_MODE)) {
-            aggregationMode = mValues.getAsInteger(RawContacts.AGGREGATION_MODE);
-        }
+        int aggregationMode = getIntValue(values, RawContacts.AGGREGATION_MODE,
+                RawContacts.AGGREGATION_MODE_DEFAULT);
         mAggregator.get().markNewForAggregation(rawContactId, aggregationMode);
 
         // Trigger creation of a Contact based on this RawContact at the end of transaction
@@ -2637,9 +2669,8 @@ public class ContactsProvider2 extends AbstractContactsProvider
 
         if (!callerIsSyncAdapter) {
             addAutoAddMembership(rawContactId);
-            final Long starred = values.getAsLong(RawContacts.STARRED);
-            if (starred != null && starred != 0) {
-                updateFavoritesMembership(rawContactId, starred != 0);
+            if (flagIsSet(values, RawContacts.STARRED)) {
+                updateFavoritesMembership(rawContactId, true);
             }
         }
 
@@ -2713,7 +2744,10 @@ public class ContactsProvider2 extends AbstractContactsProvider
         mValues.clear();
         mValues.putAll(values);
 
-        long rawContactId = mValues.getAsLong(Data.RAW_CONTACT_ID);
+        Long rawContactId = mValues.getAsLong(Data.RAW_CONTACT_ID);
+        if (rawContactId == null) {
+            throw new IllegalArgumentException(Data.RAW_CONTACT_ID + " is required");
+        }
 
         // Replace package with internal mapping
         final String packageName = mValues.getAsString(Data.RES_PACKAGE);
@@ -2755,7 +2789,10 @@ public class ContactsProvider2 extends AbstractContactsProvider
         mValues.clear();
         mValues.putAll(values);
 
-        long rawContactId = mValues.getAsLong(StreamItems.RAW_CONTACT_ID);
+        Long rawContactId = mValues.getAsLong(Data.RAW_CONTACT_ID);
+        if (rawContactId == null) {
+            throw new IllegalArgumentException(Data.RAW_CONTACT_ID + " is required");
+        }
 
         // Don't attempt to insert accounts params - they don't exist in the stream items table.
         mValues.remove(RawContacts.ACCOUNT_NAME);
@@ -2791,8 +2828,8 @@ public class ContactsProvider2 extends AbstractContactsProvider
         mValues.clear();
         mValues.putAll(values);
 
-        long streamItemId = mValues.getAsLong(StreamItemPhotos.STREAM_ITEM_ID);
-        if (streamItemId != 0) {
+        Long streamItemId = mValues.getAsLong(StreamItemPhotos.STREAM_ITEM_ID);
+        if (streamItemId != null && streamItemId != 0) {
             long rawContactId = lookupRawContactIdForStreamId(streamItemId);
 
             // Don't attempt to insert accounts params - they don't exist in the stream item
@@ -2822,9 +2859,6 @@ public class ContactsProvider2 extends AbstractContactsProvider
      * @return Whether the insert or update should proceed.
      */
     private boolean processStreamItemPhoto(ContentValues values, boolean forUpdate) {
-        if (!values.containsKey(StreamItemPhotos.PHOTO)) {
-            return forUpdate;
-        }
         byte[] photoBytes = values.getAsByteArray(StreamItemPhotos.PHOTO);
         if (photoBytes == null) {
             return forUpdate;
@@ -3026,9 +3060,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
         }
         mValues.remove(Groups.RES_PACKAGE);
 
-        final boolean isFavoritesGroup = mValues.getAsLong(Groups.FAVORITES) != null
-                ? mValues.getAsLong(Groups.FAVORITES) != 0
-                : false;
+        final boolean isFavoritesGroup = flagIsSet(mValues, Groups.FAVORITES);
 
         if (!callerIsSyncAdapter) {
             mValues.put(Groups.DIRTY, 1);
@@ -3194,9 +3226,10 @@ public class ContactsProvider2 extends AbstractContactsProvider
                 }
             }
 
-            if (values.containsKey(StatusUpdates.DATA_ID)) {
+            final String dataID = values.getAsString(StatusUpdates.DATA_ID);
+            if (dataID != null) {
                 mSb.append(" AND " + DataColumns.CONCRETE_ID + "=?");
-                mSelectionArgs.add(values.getAsString(StatusUpdates.DATA_ID));
+                mSelectionArgs.add(dataID);
             }
         }
 
@@ -3221,7 +3254,8 @@ public class ContactsProvider2 extends AbstractContactsProvider
             }
         }
 
-        if (values.containsKey(StatusUpdates.PRESENCE)) {
+        final String presence = values.getAsString(StatusUpdates.PRESENCE);
+        if (presence != null) {
             if (customProtocol == null) {
                 // We cannot allow a null in the custom protocol field, because SQLite3 does not
                 // properly enforce uniqueness of null values
@@ -3235,11 +3269,11 @@ public class ContactsProvider2 extends AbstractContactsProvider
             mValues.put(StatusUpdates.PROTOCOL, protocol);
             mValues.put(StatusUpdates.CUSTOM_PROTOCOL, customProtocol);
             mValues.put(StatusUpdates.IM_HANDLE, handle);
-            if (values.containsKey(StatusUpdates.IM_ACCOUNT)) {
-                mValues.put(StatusUpdates.IM_ACCOUNT, values.getAsString(StatusUpdates.IM_ACCOUNT));
+            final String imAccount = values.getAsString(StatusUpdates.IM_ACCOUNT);
+            if (imAccount != null) {
+                mValues.put(StatusUpdates.IM_ACCOUNT, imAccount);
             }
-            mValues.put(StatusUpdates.PRESENCE,
-                    values.getAsString(StatusUpdates.PRESENCE));
+            mValues.put(StatusUpdates.PRESENCE, presence);
             mValues.put(StatusUpdates.CHAT_CAPABILITY,
                     values.getAsString(StatusUpdates.CHAT_CAPABILITY));
 
@@ -4017,6 +4051,13 @@ public class ContactsProvider2 extends AbstractContactsProvider
                 break;
             }
 
+            case PINNED_POSITION_UPDATE: {
+                final boolean forceStarWhenPinning = uri.getBooleanQueryParameter(
+                        PinnedPositions.STAR_WHEN_PINNING, false);
+                count = handlePinningUpdate(values, forceStarWhenPinning);
+                break;
+            }
+
             default: {
                 mSyncToNetwork = true;
                 return mLegacyApiSupport.update(uri, values, selection, selectionArgs);
@@ -4215,8 +4256,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
         // resolver will not be able to request a sync for the right source (unless it is updated
         // to key off account with data set).
         // i.e. requestSync only takes Account, not AccountWithDataSet.
-        if (updatedValues.containsKey(Groups.SHOULD_SYNC)
-                && updatedValues.getAsInteger(Groups.SHOULD_SYNC) != 0) {
+        if (flagIsSet(updatedValues, Groups.SHOULD_SYNC)) {
             for (Account account : affectedAccounts) {
                 ContentResolver.requestSync(account, ContactsContract.AUTHORITY, new Bundle());
             }
@@ -4271,8 +4311,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
 
         final ContactsDatabaseHelper dbHelper = mDbHelper.get();
 
-        final boolean requestUndoDelete = (values.containsKey(RawContacts.DELETED)
-                && values.getAsInteger(RawContacts.DELETED) == 0);
+        final boolean requestUndoDelete = flagIsClear(values, RawContacts.DELETED);
 
         final boolean isAccountNameChanging = values.containsKey(RawContacts.ACCOUNT_NAME);
         final boolean isAccountTypeChanging = values.containsKey(RawContacts.ACCOUNT_TYPE);
@@ -4334,21 +4373,20 @@ public class ContactsProvider2 extends AbstractContactsProvider
 
         int count = db.update(Tables.RAW_CONTACTS, values, selection, mSelectionArgs1);
         if (count != 0) {
-            if (values.containsKey(RawContacts.AGGREGATION_MODE)) {
-                int aggregationMode = values.getAsInteger(RawContacts.AGGREGATION_MODE);
-
-                // As per ContactsContract documentation, changing aggregation mode
-                // to DEFAULT should not trigger aggregation
-                if (aggregationMode != RawContacts.AGGREGATION_MODE_DEFAULT) {
-                    mAggregator.get().markForAggregation(rawContactId, aggregationMode, false);
-                }
+            int aggregationMode = getIntValue(values, RawContacts.AGGREGATION_MODE,
+                    RawContacts.AGGREGATION_MODE_DEFAULT);
+            // As per ContactsContract documentation, changing aggregation mode
+            // to DEFAULT should not trigger aggregation
+            if (aggregationMode != RawContacts.AGGREGATION_MODE_DEFAULT) {
+                mAggregator.get().markForAggregation(rawContactId, aggregationMode, false);
             }
-            if (values.containsKey(RawContacts.STARRED)) {
+            if (flagExists(values, RawContacts.STARRED)) {
                 if (!callerIsSyncAdapter) {
                     updateFavoritesMembership(rawContactId,
-                            values.getAsLong(RawContacts.STARRED) != 0);
+                            flagIsSet(values, RawContacts.STARRED));
                 }
                 mAggregator.get().updateStarred(rawContactId);
+                mAggregator.get().updatePinned(rawContactId);
             } else {
                 // if this raw contact is being associated with an account, then update the
                 // favorites group membership based on whether or not this contact is starred.
@@ -4371,11 +4409,10 @@ public class ContactsProvider2 extends AbstractContactsProvider
             if (values.containsKey(RawContacts.SOURCE_ID)) {
                 mAggregator.get().updateLookupKeyForRawContact(db, rawContactId);
             }
-            if (values.containsKey(RawContacts.NAME_VERIFIED)) {
-
+            if (flagExists(values, RawContacts.NAME_VERIFIED)) {
                 // If setting NAME_VERIFIED for this raw contact, reset it for all
                 // other raw contacts in the same aggregate
-                if (values.getAsInteger(RawContacts.NAME_VERIFIED) != 0) {
+                if (flagIsSet(values, RawContacts.NAME_VERIFIED)) {
                     mDbHelper.get().resetNameVerifiedForOtherRawContacts(rawContactId);
                 }
                 mAggregator.get().updateDisplayNameForRawContact(db, rawContactId);
@@ -4482,13 +4519,16 @@ public class ContactsProvider2 extends AbstractContactsProvider
                 values, Contacts.TIMES_CONTACTED);
         ContactsDatabaseHelper.copyLongValue(mValues, RawContacts.STARRED,
                 values, Contacts.STARRED);
+        ContactsDatabaseHelper.copyLongValue(mValues, RawContacts.PINNED,
+                values, Contacts.PINNED);
 
         // Nothing to update - just return
         if (mValues.size() == 0) {
             return 0;
         }
 
-        if (mValues.containsKey(RawContacts.STARRED)) {
+        boolean hasStarredValue = flagExists(mValues, RawContacts.STARRED);
+        if (hasStarredValue) {
             // Mark dirty when changing starred to trigger sync
             mValues.put(RawContacts.DIRTY, 1);
         }
@@ -4497,7 +4537,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
         db.update(Tables.RAW_CONTACTS, mValues, RawContacts.CONTACT_ID + "=?"
                 + " AND " + RawContacts.RAW_CONTACT_IS_READ_ONLY + "=0", mSelectionArgs1);
 
-        if (mValues.containsKey(RawContacts.STARRED) && !callerIsSyncAdapter) {
+        if (hasStarredValue && !callerIsSyncAdapter) {
             Cursor cursor = db.query(Views.RAW_CONTACTS,
                     new String[] { RawContacts._ID }, RawContacts.CONTACT_ID + "=?",
                     mSelectionArgs1, null, null, null);
@@ -4505,7 +4545,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
                 while (cursor.moveToNext()) {
                     long rawContactId = cursor.getLong(0);
                     updateFavoritesMembership(rawContactId,
-                            mValues.getAsLong(RawContacts.STARRED) != 0);
+                            flagIsSet(mValues, RawContacts.STARRED));
                 }
             } finally {
                 cursor.close();
@@ -4525,6 +4565,8 @@ public class ContactsProvider2 extends AbstractContactsProvider
                 values, Contacts.TIMES_CONTACTED);
         ContactsDatabaseHelper.copyLongValue(mValues, RawContacts.STARRED,
                 values, Contacts.STARRED);
+        ContactsDatabaseHelper.copyLongValue(mValues, RawContacts.PINNED,
+                values, Contacts.PINNED);
         mValues.put(Contacts.CONTACT_LAST_UPDATED_TIMESTAMP,
                 Clock.getInstance().currentTimeMillis());
 
@@ -4540,9 +4582,12 @@ public class ContactsProvider2 extends AbstractContactsProvider
     }
 
     private int updateAggregationException(SQLiteDatabase db, ContentValues values) {
-        int exceptionType = values.getAsInteger(AggregationExceptions.TYPE);
-        long rcId1 = values.getAsInteger(AggregationExceptions.RAW_CONTACT_ID1);
-        long rcId2 = values.getAsInteger(AggregationExceptions.RAW_CONTACT_ID2);
+        Integer exceptionType = values.getAsInteger(AggregationExceptions.TYPE);
+        Long rcId1 = values.getAsLong(AggregationExceptions.RAW_CONTACT_ID1);
+        Long rcId2 = values.getAsLong(AggregationExceptions.RAW_CONTACT_ID2);
+        if (exceptionType == null || rcId1 == null || rcId2 == null) {
+            return 0;
+        }
 
         long rawContactId1;
         long rawContactId2;
@@ -5306,35 +5351,55 @@ public class ContactsProvider2 extends AbstractContactsProvider
                     subProjection[projection.length + 1] = DataUsageStatColumns.LAST_TIME_USED;
                 }
 
-                // Build the first query for starred
-                setTablesAndProjectionMapForContacts(qb, uri, projection, false);
-                qb.setProjectionMap(phoneOnly ?
-                        sStrequentPhoneOnlyStarredProjectionMap
-                        : sStrequentStarredProjectionMap);
-                if (phoneOnly) {
-                    qb.appendWhere(DbQueryUtils.concatenateClauses(
-                            selection, Contacts.HAS_PHONE_NUMBER + "=1"));
-                }
-                qb.setStrict(true);
-                final String starredInnerQuery = qb.buildQuery(subProjection,
-                        Contacts.STARRED + "=1", Contacts._ID, null,
-                        Contacts.DISPLAY_NAME + " COLLATE LOCALIZED ASC", null);
-
-                // Reset the builder.
-                qb = new SQLiteQueryBuilder();
-                qb.setStrict(true);
-
-                // Build the second query for frequent part. These JOINS can be very slow
+                // String that will store the query for starred contacts. For phone only queries,
+                // these will return a list of all phone numbers that belong to starred contacts.
+                final String starredInnerQuery;
+                // String that will store the query for frequents. These JOINS can be very slow
                 // if assembled in the wrong order. Be sure to test changes against huge databases.
                 final String frequentInnerQuery;
+
                 if (phoneOnly) {
                     final StringBuilder tableBuilder = new StringBuilder();
                     // In phone only mode, we need to look at view_data instead of
                     // contacts/raw_contacts to obtain actual phone numbers. One problem is that
                     // view_data is much larger than view_contacts, so our query might become much
                     // slower.
-                    //
-                    // To avoid the possible slow down, we start from data usage table and join
+
+                    // For starred phone numbers, we select only phone numbers that belong to
+                    // starred contacts, and then do an outer join against the data usage table,
+                    // to make sure that even if a starred number hasn't been previously used,
+                    // it is included in the list of strequent numbers.
+                    tableBuilder.append("(SELECT * FROM " + Views.DATA + " WHERE "
+                            + Contacts.STARRED + "=1)" + " AS " + Tables.DATA
+                        + " LEFT OUTER JOIN " + Tables.DATA_USAGE_STAT
+                            + " ON (" + DataUsageStatColumns.CONCRETE_DATA_ID + "="
+                                + DataColumns.CONCRETE_ID + " AND "
+                            + DataUsageStatColumns.CONCRETE_USAGE_TYPE + "="
+                                + DataUsageStatColumns.USAGE_TYPE_INT_CALL + ")");
+                    appendContactPresenceJoin(tableBuilder, projection, RawContacts.CONTACT_ID);
+                    appendContactStatusUpdateJoin(tableBuilder, projection,
+                            ContactsColumns.LAST_STATUS_UPDATE_ID);
+                    qb.setTables(tableBuilder.toString());
+                    qb.setProjectionMap(sStrequentPhoneOnlyProjectionMap);
+                    final long phoneMimeTypeId =
+                            mDbHelper.get().getMimeTypeId(Phone.CONTENT_ITEM_TYPE);
+                    final long sipMimeTypeId =
+                            mDbHelper.get().getMimeTypeId(SipAddress.CONTENT_ITEM_TYPE);
+
+                    qb.appendWhere(DbQueryUtils.concatenateClauses(
+                            selection,
+                                "(" + Contacts.STARRED + "=1",
+                                DataColumns.MIMETYPE_ID + " IN (" +
+                            phoneMimeTypeId + ", " + sipMimeTypeId + ")) AND (" +
+                            RawContacts.CONTACT_ID + " IN " + Tables.DEFAULT_DIRECTORY + ")"));
+                    starredInnerQuery = qb.buildQuery(subProjection, null, null,
+                        null, Data.IS_SUPER_PRIMARY + " DESC," + SORT_BY_DATA_USAGE, null);
+
+                    qb = new SQLiteQueryBuilder();
+                    qb.setStrict(true);
+                    // Construct the query string for frequent phone numbers
+                    tableBuilder.setLength(0);
+                    // For frequent phone numbers, we start from data usage table and join
                     // view_data to the table, assuming data usage table is quite smaller than
                     // data rows (almost always it should be), and we don't want any phone
                     // numbers not used by the user. This way sqlite is able to drop a number of
@@ -5348,13 +5413,8 @@ public class ContactsProvider2 extends AbstractContactsProvider
                     appendContactPresenceJoin(tableBuilder, projection, RawContacts.CONTACT_ID);
                     appendContactStatusUpdateJoin(tableBuilder, projection,
                             ContactsColumns.LAST_STATUS_UPDATE_ID);
-
                     qb.setTables(tableBuilder.toString());
-                    qb.setProjectionMap(sStrequentPhoneOnlyFrequentProjectionMap);
-                    final long phoneMimeTypeId =
-                            mDbHelper.get().getMimeTypeId(Phone.CONTENT_ITEM_TYPE);
-                    final long sipMimeTypeId =
-                            mDbHelper.get().getMimeTypeId(SipAddress.CONTENT_ITEM_TYPE);
+                    qb.setProjectionMap(sStrequentPhoneOnlyProjectionMap);
                     qb.appendWhere(DbQueryUtils.concatenateClauses(
                             selection,
                             "(" + Contacts.STARRED + "=0 OR " + Contacts.STARRED + " IS NULL",
@@ -5363,7 +5423,21 @@ public class ContactsProvider2 extends AbstractContactsProvider
                             RawContacts.CONTACT_ID + " IN " + Tables.DEFAULT_DIRECTORY + ")"));
                     frequentInnerQuery = qb.buildQuery(subProjection, null, null, null,
                             SORT_BY_DATA_USAGE, "25");
+
                 } else {
+                    // Build the first query for starred contacts
+                    qb.setStrict(true);
+                    setTablesAndProjectionMapForContacts(qb, uri, projection, false);
+                    qb.setProjectionMap(sStrequentStarredProjectionMap);
+
+                    starredInnerQuery = qb.buildQuery(subProjection,
+                            Contacts.STARRED + "=1", Contacts._ID, null,
+                            Contacts.DISPLAY_NAME + " COLLATE LOCALIZED ASC", null);
+
+                    // Reset the builder, and build the second query for frequents contacts
+                    qb = new SQLiteQueryBuilder();
+                    qb.setStrict(true);
+
                     setTablesAndProjectionMapForContacts(qb, uri, projection, true);
                     qb.setProjectionMap(sStrequentFrequentProjectionMap);
                     qb.appendWhere(DbQueryUtils.concatenateClauses(
@@ -5379,7 +5453,10 @@ public class ContactsProvider2 extends AbstractContactsProvider
 
                 // We need to wrap the inner queries in an extra select, because they contain
                 // their own SORT and LIMIT
-                final String frequentQuery = "SELECT * FROM (" + frequentInnerQuery + ")";
+
+                // Phone numbers that were used more than 30 days ago are dropped from frequents
+                final String frequentQuery = "SELECT * FROM (" + frequentInnerQuery + ") WHERE " +
+                        TIME_SINCE_LAST_USED_SEC + "<" + LAST_TIME_USED_30_DAYS_SEC;
                 final String starredQuery = "SELECT * FROM (" + starredInnerQuery + ")";
 
                 // Put them together
@@ -5634,13 +5711,11 @@ public class ContactsProvider2 extends AbstractContactsProvider
                     sb.append(" AND (");
 
                     boolean hasCondition = false;
-                    // TODO This only searches the name field.  Search other fields, such as
-                    // note, nickname, as well.  (Which should be disabled by default.)
-                    // Fix EMAILS_FILTER too.
+                    // This searches the name, nickname and organization fields.
                     final String ftsMatchQuery =
                             searchDisplayName
                             ? SearchIndexManager.getFtsMatchQuery(filterParam,
-                                    FtsQueryBuilder.SCOPED_NAME_NORMALIZING)
+                                    FtsQueryBuilder.UNSCOPED_NORMALIZING)
                             : null;
                     if (!TextUtils.isEmpty(ftsMatchQuery)) {
                         sb.append(Data.RAW_CONTACT_ID + " IN " +
@@ -5649,7 +5724,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
                                 " JOIN " + Tables.RAW_CONTACTS +
                                 " ON (" + Tables.SEARCH_INDEX + "." + SearchIndexColumns.CONTACT_ID
                                         + "=" + RawContactsColumns.CONCRETE_CONTACT_ID + ")" +
-                                " WHERE " + Tables.SEARCH_INDEX + " MATCH '");
+                                " WHERE " + SearchIndexColumns.NAME + " MATCH '");
                         sb.append(ftsMatchQuery);
                         sb.append("')");
                         hasCondition = true;
@@ -6060,7 +6135,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
                     if (TextUtils.isEmpty(sortOrder)) {
                         // Default the sort order to something reasonable so we get consistent
                         // results when callers don't request an ordering
-                        sortOrder = Contacts.DISPLAY_NAME + " ASC";
+                        sortOrder = Contacts.DISPLAY_NAME + " COLLATE LOCALIZED ASC";
                     }
 
                     String sipAddress = uri.getPathSegments().size() > 1
@@ -6942,7 +7017,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
             if (isPhoneNumber) {
                 phoneNumber = PhoneNumberUtils.normalizeNumber(filter);
                 numberE164 = PhoneNumberUtils.formatNumberToE164(phoneNumber,
-                        mDbHelper.get().getCountryIso());
+                        mDbHelper.get().getCurrentCountryIso());
             }
         }
 
@@ -7873,6 +7948,8 @@ public class ContactsProvider2 extends AbstractContactsProvider
                 }
             } catch (IOException e) {
                 throw new RuntimeException(e);
+            } finally {
+                IoUtils.closeQuietly(is);
             }
             return null;
         }
@@ -7889,7 +7966,6 @@ public class ContactsProvider2 extends AbstractContactsProvider
             stream.flush();
 
             final byte[] byteData = stream.toByteArray();
-
             return makeAssetFileDescriptor(
                     ParcelFileDescriptor.fromData(byteData, CONTACT_MEMORY_FILE_NAME),
                     byteData.length);
@@ -8469,6 +8545,83 @@ public class ContactsProvider2 extends AbstractContactsProvider
         //   getPackageManager().hasSystemFeature(PackageManager.FEATURE_TELEPHONY_VOICE_CALLS);
     }
 
+    /**
+     * Handles pinning update information from clients.
+     *
+     * @param values ContentValues containing key-value pairs where keys correspond to
+     * the contactId for which to update the pinnedPosition, and the value is the actual
+     * pinned position (a positive integer).
+     * @return The number of contacts that had their pinned positions updated.
+     */
+    private int handlePinningUpdate(ContentValues values, boolean forceStarWhenPinning) {
+        if (values.size() == 0) return 0;
+        final SQLiteDatabase db = mDbHelper.get().getWritableDatabase();
+        final String[] args;
+        if (forceStarWhenPinning) {
+            args = new String[3];
+        } else {
+            args = new String[2];
+        }
+
+        final StringBuilder sb = new StringBuilder();
+
+        sb.append("UPDATE " + Tables.CONTACTS + " SET " + Contacts.PINNED + "=?2");
+        if (forceStarWhenPinning) {
+            sb.append("," + Contacts.STARRED + "=?3");
+        }
+        sb.append(" WHERE " + Contacts._ID + " =?1;");
+        final String contactSQL = sb.toString();
+
+        sb.setLength(0);
+        sb.append("UPDATE " + Tables.RAW_CONTACTS + " SET " + RawContacts.PINNED + "=?2");
+        if (forceStarWhenPinning) {
+            sb.append("," + RawContacts.STARRED + "=?3");
+        }
+        sb.append(" WHERE " + RawContacts.CONTACT_ID + " =?1;");
+        final String rawContactSQL = sb.toString();
+
+        int count = 0;
+        for (String id : values.keySet()) {
+            count++;
+            final long contactId;
+            try {
+                contactId = Integer.valueOf(id);
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("contactId must be a positive integer. Found: "
+                        + id);
+            }
+
+            // If contact is to be undemoted, go through a separate un-demotion process
+            final String undemote = values.getAsString(id);
+            if (PinnedPositions.UNDEMOTE.equals(undemote)) {
+                undemoteContact(db, contactId);
+                continue;
+            }
+
+            final Integer pinnedPosition = values.getAsInteger(id);
+            if (pinnedPosition == null) {
+                throw new IllegalArgumentException("Pinned position must be an integer.");
+            }
+            args[0] = String.valueOf(contactId);
+            args[1] = String.valueOf(pinnedPosition);
+            if (forceStarWhenPinning) {
+                args[2] = (pinnedPosition == PinnedPositions.UNPINNED ||
+                        pinnedPosition == PinnedPositions.DEMOTED ? "0" : "1");
+            }
+            db.execSQL(contactSQL, args);
+
+            db.execSQL(rawContactSQL, args);
+        }
+        return count;
+    }
+
+    private void undemoteContact(SQLiteDatabase db, long id) {
+        final String[] arg = new String[1];
+        arg[0] = String.valueOf(id);
+        db.execSQL(UNDEMOTE_CONTACT, arg);
+        db.execSQL(UNDEMOTE_RAW_CONTACT, arg);
+    }
+
     private boolean handleDataUsageFeedback(Uri uri) {
         final long currentTimeMillis = Clock.getInstance().currentTimeMillis();
         final String usageType = uri.getQueryParameter(DataUsageFeedback.USAGE_TYPE);
@@ -8507,13 +8660,15 @@ public class ContactsProvider2 extends AbstractContactsProvider
                 " WHERE " + RawContacts._ID + " IN (" + rawContactIdSelect.toString() + ")"
                 , mSelectionArgs1);
         db.execSQL("UPDATE " + Tables.CONTACTS +
-                " SET " + Contacts.LAST_TIME_CONTACTED + "=?" +
+                " SET " + Contacts.LAST_TIME_CONTACTED + "=?1" +
                 "," + Contacts.TIMES_CONTACTED + "=" +
                     "ifnull(" + Contacts.TIMES_CONTACTED + ",0) + 1" +
+                "," + Contacts.CONTACT_LAST_UPDATED_TIMESTAMP + "=?1" +
                 " WHERE " + Contacts._ID + " IN (SELECT " + RawContacts.CONTACT_ID +
                     " FROM " + Tables.RAW_CONTACTS +
                     " WHERE " + RawContacts._ID + " IN (" + rawContactIdSelect.toString() + "))"
                 , mSelectionArgs1);
+
         return successful;
     }
 

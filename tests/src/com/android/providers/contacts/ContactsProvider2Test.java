@@ -54,6 +54,7 @@ import android.provider.ContactsContract.FullNameStyle;
 import android.provider.ContactsContract.Groups;
 import android.provider.ContactsContract.PhoneLookup;
 import android.provider.ContactsContract.PhoneticNameStyle;
+import android.provider.ContactsContract.PinnedPositions;
 import android.provider.ContactsContract.Profile;
 import android.provider.ContactsContract.ProviderStatus;
 import android.provider.ContactsContract.RawContacts;
@@ -129,6 +130,7 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
                 Contacts.LAST_TIME_CONTACTED,
                 Contacts.TIMES_CONTACTED,
                 Contacts.STARRED,
+                Contacts.PINNED,
                 Contacts.IN_VISIBLE_GROUP,
                 Contacts.PHOTO_ID,
                 Contacts.PHOTO_FILE_ID,
@@ -168,6 +170,7 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
                 Contacts.LAST_TIME_CONTACTED,
                 Contacts.TIMES_CONTACTED,
                 Contacts.STARRED,
+                Contacts.PINNED,
                 Contacts.IN_VISIBLE_GROUP,
                 Contacts.PHOTO_ID,
                 Contacts.PHOTO_FILE_ID,
@@ -211,6 +214,7 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
                 Contacts.LAST_TIME_CONTACTED,
                 Contacts.TIMES_CONTACTED,
                 Contacts.STARRED,
+                Contacts.PINNED,
                 Contacts.IN_VISIBLE_GROUP,
                 Contacts.PHOTO_ID,
                 Contacts.PHOTO_FILE_ID,
@@ -235,6 +239,8 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
                 Phone.NUMBER,
                 Phone.TYPE,
                 Phone.LABEL,
+                Phone.IS_SUPER_PRIMARY,
+                Phone.CONTACT_ID
         });
     }
 
@@ -256,6 +262,7 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
                 Contacts.LAST_TIME_CONTACTED,
                 Contacts.TIMES_CONTACTED,
                 Contacts.STARRED,
+                Contacts.PINNED,
                 Contacts.IN_VISIBLE_GROUP,
                 Contacts.PHOTO_ID,
                 Contacts.PHOTO_FILE_ID,
@@ -309,6 +316,7 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
                 RawContacts.CUSTOM_RINGTONE,
                 RawContacts.SEND_TO_VOICEMAIL,
                 RawContacts.STARRED,
+                RawContacts.PINNED,
                 RawContacts.AGGREGATION_MODE,
                 RawContacts.SYNC1,
                 RawContacts.SYNC2,
@@ -379,6 +387,7 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
                 Contacts.LAST_TIME_CONTACTED,
                 Contacts.TIMES_CONTACTED,
                 Contacts.STARRED,
+                Contacts.PINNED,
                 Contacts.IN_VISIBLE_GROUP,
                 Contacts.PHOTO_ID,
                 Contacts.PHOTO_FILE_ID,
@@ -455,6 +464,7 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
                 Contacts.LAST_TIME_CONTACTED,
                 Contacts.TIMES_CONTACTED,
                 Contacts.STARRED,
+                Contacts.PINNED,
                 Contacts.IN_VISIBLE_GROUP,
                 Contacts.PHOTO_ID,
                 Contacts.PHOTO_FILE_ID,
@@ -544,6 +554,7 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
                 Contacts.LAST_TIME_CONTACTED,
                 Contacts.TIMES_CONTACTED,
                 Contacts.STARRED,
+                Contacts.PINNED,
                 Contacts.IN_VISIBLE_GROUP,
                 Contacts.PHOTO_ID,
                 Contacts.PHOTO_FILE_ID,
@@ -2307,8 +2318,9 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
     public void testQueryContactStrequent() {
         ContentValues values1 = new ContentValues();
         final String email1 = "a@acme.com";
+        final String phoneNumber1 = "18004664411";
         final int timesContacted1 = 0;
-        createContact(values1, "Noah", "Tever", "18004664411",
+        createContact(values1, "Noah", "Tever", phoneNumber1,
                 email1, StatusUpdates.OFFLINE, timesContacted1, 0, 0,
                 StatusUpdates.CAPABILITY_HAS_CAMERA | StatusUpdates.CAPABILITY_HAS_VIDEO);
         final String phoneNumber2 = "18004664412";
@@ -2354,18 +2366,42 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
                 .build();
         assertStoredValuesOrderly(phoneOnlyStrequentUri, new ContentValues[] { values3 });
 
-        // Now the 4th contact has a phone number.
-        insertPhoneNumber(rawContactId4, "18004664414");
+        // Now the 4th contact has three phone numbers, one of which is called twice and
+        // the other once
+        final String phoneNumber4 = "18004664414";
+        final String phoneNumber5 = "18004664415";
+        final String phoneNumber6 = "18004664416";
+        insertPhoneNumber(rawContactId4, phoneNumber4);
+        insertPhoneNumber(rawContactId4, phoneNumber5);
+        insertPhoneNumber(rawContactId4, phoneNumber6);
+        values3.put(Phone.NUMBER, phoneNumber3);
+        values4.put(Phone.NUMBER, phoneNumber4);
 
-        // Phone only strequent should return 4th contact.
-        assertStoredValuesOrderly(phoneOnlyStrequentUri, new ContentValues[] { values4, values3 });
+        sendFeedback(phoneNumber5, DataUsageFeedback.USAGE_TYPE_CALL, values4);
+        sendFeedback(phoneNumber5, DataUsageFeedback.USAGE_TYPE_CALL, values4);
+        sendFeedback(phoneNumber6, DataUsageFeedback.USAGE_TYPE_CALL, values4);
+
+        // Create a ContentValues object representing the second phone number of contact 4
+        final ContentValues values5 = new ContentValues(values4);
+        values5.put(Phone.NUMBER, phoneNumber5);
+
+        // Create a ContentValues object representing the third phone number of contact 4
+        final ContentValues values6 = new ContentValues(values4);
+        values6.put(Phone.NUMBER, phoneNumber6);
+
+        // Phone only strequent should return all phone numbers belonging to the 4th contact,
+        // and then contact 3.
+        assertStoredValuesOrderly(phoneOnlyStrequentUri, new ContentValues[] {values5, values6,
+                values4, values3});
 
         // Send feedback for the 2rd phone number, pretending we send the person a SMS message.
         sendFeedback(phoneNumber2, DataUsageFeedback.USAGE_TYPE_SHORT_TEXT, values1);
 
         // SMS feedback shouldn't affect phone-only results.
-        assertStoredValuesOrderly(phoneOnlyStrequentUri, new ContentValues[] { values4, values3 });
+        assertStoredValuesOrderly(phoneOnlyStrequentUri, new ContentValues[] {values5, values6,
+                values4, values3});
 
+        values4.remove(Phone.NUMBER);
         Uri filterUri = Uri.withAppendedPath(Contacts.CONTENT_STREQUENT_FILTER_URI, "fay");
         assertStoredValues(filterUri, values4);
     }
@@ -2391,15 +2427,23 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
         final long rid6 = RawContactUtil.createRawContact(mResolver);
         final long did6 = ContentUris.parseId(insertPhoneNumber(rid6, "6"));
 
+        final long rid7 = RawContactUtil.createRawContact(mResolver);
+        final long did7 = ContentUris.parseId(insertPhoneNumber(rid7, "7"));
+
+        final long rid8 = RawContactUtil.createRawContact(mResolver);
+        final long did8 = ContentUris.parseId(insertPhoneNumber(rid8, "8"));
+
         final long cid1 = queryContactId(rid1);
         final long cid2 = queryContactId(rid2);
         final long cid3 = queryContactId(rid3);
         final long cid4 = queryContactId(rid4);
         final long cid5 = queryContactId(rid5);
         final long cid6 = queryContactId(rid6);
+        final long cid7 = queryContactId(rid7);
+        final long cid8 = queryContactId(rid8);
 
         // Make sure they aren't aggregated.
-        EvenMoreAsserts.assertUnique(cid1, cid2, cid3, cid4, cid5, cid6);
+        EvenMoreAsserts.assertUnique(cid1, cid2, cid3, cid4, cid5, cid6, cid7, cid8);
 
         // Prepare the clock
         sMockClock.install();
@@ -2408,24 +2452,27 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
         // use the  actual (roughly) time.
 
         final long nowInMillis = System.currentTimeMillis();
-        final long yesterdayInMillis = (nowInMillis - 24 * 60 * 60 * 1000);
-        final long sevenDaysAgoInMillis = (nowInMillis - 7 * 24 * 60 * 60 * 1000);
-        final long oneYearAgoInMillis = (nowInMillis - 365L * 24 * 60 * 60 * 1000);
+        final long oneDayAgoInMillis = (nowInMillis - 24L * 60 * 60 * 1000);
+        final long fourDaysAgoInMillis = (nowInMillis - 4L * 24 * 60 * 60 * 1000);
+        final long eightDaysAgoInMillis = (nowInMillis - 8L * 24 * 60 * 60 * 1000);
+        final long fifteenDaysAgoInMillis = (nowInMillis - 15L * 24 * 60 * 60 * 1000);
+        // All contacts older than 30 days will not be included in frequents
+        final long thirtyOneDaysAgoInMillis = (nowInMillis - 31L * 24 * 60 * 60 * 1000);
 
-        // A year ago...
-        sMockClock.setCurrentTimeMillis(oneYearAgoInMillis);
+        // Contacts in this bucket are considered more than 30 days old
+        sMockClock.setCurrentTimeMillis(thirtyOneDaysAgoInMillis);
 
         updateDataUsageFeedback(DataUsageFeedback.USAGE_TYPE_CALL, did1, did2);
         updateDataUsageFeedback(DataUsageFeedback.USAGE_TYPE_CALL, did1);
 
-        // 7 days ago...
-        sMockClock.setCurrentTimeMillis(sevenDaysAgoInMillis);
+        // Contacts in this bucket are considered more than 14 days old
+        sMockClock.setCurrentTimeMillis(fifteenDaysAgoInMillis);
 
         updateDataUsageFeedback(DataUsageFeedback.USAGE_TYPE_CALL, did3, did4);
         updateDataUsageFeedback(DataUsageFeedback.USAGE_TYPE_CALL, did3);
 
-        // Yesterday...
-        sMockClock.setCurrentTimeMillis(yesterdayInMillis);
+        // Contacts in this bucket are considered more than 7 days old
+        sMockClock.setCurrentTimeMillis(eightDaysAgoInMillis);
 
         updateDataUsageFeedback(DataUsageFeedback.USAGE_TYPE_CALL, did5, did6);
         updateDataUsageFeedback(DataUsageFeedback.USAGE_TYPE_CALL, did5);
@@ -2433,28 +2480,46 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
         // Contact cid1 again, but it's an email, not a phone call.
         updateDataUsageFeedback(DataUsageFeedback.USAGE_TYPE_LONG_TEXT, did1e);
 
+        // Contacts in this bucket are considered more than 3 days old
+        sMockClock.setCurrentTimeMillis(fourDaysAgoInMillis);
+
+        updateDataUsageFeedback(DataUsageFeedback.USAGE_TYPE_CALL, did7);
+        updateDataUsageFeedback(DataUsageFeedback.USAGE_TYPE_CALL, did7);
+
+
+        // Contacts in this bucket are considered less than 3 days old
+        sMockClock.setCurrentTimeMillis(oneDayAgoInMillis);
+
+        updateDataUsageFeedback(DataUsageFeedback.USAGE_TYPE_CALL, did8);
+
+        sMockClock.setCurrentTimeMillis(nowInMillis);
+
         // Check the order -- The regular frequent, which is contact based.
-        // Note because we contacted cid1 yesterday, it's been contacted 3 times, so it comes
-        // first.
+        // Note because we contacted cid1 8 days ago, it's been contacted 3 times, so it comes
+        // before cid5 and cid6, which were contacted at the same time.
+        // cid2 will not show up because it was contacted more than 30 days ago
+
         assertStoredValuesOrderly(Contacts.CONTENT_STREQUENT_URI,
+                cv(Contacts._ID, cid8),
+                cv(Contacts._ID, cid7),
                 cv(Contacts._ID, cid1),
                 cv(Contacts._ID, cid5),
                 cv(Contacts._ID, cid6),
                 cv(Contacts._ID, cid3),
-                cv(Contacts._ID, cid4),
-                cv(Contacts._ID, cid2));
+                cv(Contacts._ID, cid4));
 
         // Check the order -- phone only frequent, which is data based.
         // Note this is based on data, and only looks at phone numbers, so the order is different
         // now.
+        // did1, did2 will not show up because they were used to make calls more than 30 days ago.
         assertStoredValuesOrderly(Contacts.CONTENT_STREQUENT_URI.buildUpon()
                     .appendQueryParameter(ContactsContract.STREQUENT_PHONE_ONLY, "1").build(),
+                cv(Data._ID, did8),
+                cv(Data._ID, did7),
                 cv(Data._ID, did5),
                 cv(Data._ID, did6),
                 cv(Data._ID, did3),
-                cv(Data._ID, did4),
-                cv(Data._ID, did1),
-                cv(Data._ID, did2));
+                cv(Data._ID, did4));
     }
 
     /**
@@ -3700,8 +3765,8 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
 
         values.clear();
         values.put(Contacts._ID, contactId);
-        values.put(SearchSnippetColumns.SNIPPET, "engineer, [acmecorp]");
-        assertStoredValues(filterUri, values);
+        values.put(SearchSnippetColumns.SNIPPET, "acmecorp");
+        assertContainsValues(filterUri, values);
     }
 
     public void testSearchSnippetEmail() throws Exception {
@@ -3716,7 +3781,7 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
 
         values.clear();
         values.put(Contacts._ID, contactId);
-        values.put(SearchSnippetColumns.SNIPPET, "[acme@corp.com]");
+        values.put(SearchSnippetColumns.SNIPPET, "acme@corp.com");
         assertStoredValues(filterUri, values);
     }
 
@@ -3770,6 +3835,14 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
         return builder.build();
     }
 
+    public ContentValues createSnippetContentValues(long contactId, String snippet) {
+        final ContentValues values = new ContentValues();
+        values.clear();
+        values.put(Contacts._ID, contactId);
+        values.put(SearchSnippetColumns.SNIPPET, snippet);
+        return values;
+    }
+
     public void testSearchSnippetNickname() throws Exception {
         long rawContactId = RawContactUtil.createRawContactWithName(mResolver);
         long contactId = queryContactId(rawContactId);
@@ -3781,7 +3854,7 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
 
         values.clear();
         values.put(Contacts._ID, contactId);
-        values.put(SearchSnippetColumns.SNIPPET, "[Incredible]");
+        values.put(SearchSnippetColumns.SNIPPET, "Incredible");
         assertStoredValues(filterUri, values);
     }
 
@@ -3791,13 +3864,10 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
         DataUtil.insertStructuredName(mResolver, rawContactId, "Cave", "Johnson");
         insertEmail(rawContactId, "cave@aperturescience.com", true);
 
-        ContentValues emptySnippet = new ContentValues();
-        emptySnippet.clear();
-        emptySnippet.put(Contacts._ID, contactId);
-        emptySnippet.put(SearchSnippetColumns.SNIPPET, (String) null);
+        ContentValues snippet = createSnippetContentValues(contactId, "cave@aperturescience.com");
 
-        assertStoredValues(buildFilterUri("cave", true), emptySnippet);
-        assertStoredValues(buildFilterUri("john", true), emptySnippet);
+        assertContainsValues(buildFilterUri("cave", true), snippet);
+        assertContainsValues(buildFilterUri("john", true), snippet);
     }
 
     public void testSearchSnippetEmptyForNicknameInDisplayName() throws Exception {
@@ -3806,12 +3876,9 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
         insertNickname(rawContactId, "Caveman");
         insertEmail(rawContactId, "cave@aperturescience.com", true);
 
-        ContentValues emptySnippet = new ContentValues();
-        emptySnippet.clear();
-        emptySnippet.put(Contacts._ID, contactId);
-        emptySnippet.put(SearchSnippetColumns.SNIPPET, (String) null);
+        ContentValues snippet = createSnippetContentValues(contactId, "cave@aperturescience.com");
 
-        assertStoredValues(buildFilterUri("cave", true), emptySnippet);
+        assertContainsValues(buildFilterUri("cave", true), snippet);
     }
 
     public void testSearchSnippetEmptyForCompanyInDisplayName() throws Exception {
@@ -3824,12 +3891,9 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
         insertOrganization(rawContactId, company);
         insertEmail(rawContactId, "aperturepresident@aperturescience.com", true);
 
-        ContentValues emptySnippet = new ContentValues();
-        emptySnippet.clear();
-        emptySnippet.put(Contacts._ID, contactId);
-        emptySnippet.put(SearchSnippetColumns.SNIPPET, (String) null);
+        ContentValues snippet = createSnippetContentValues(contactId, "aperturepresident");
 
-        assertStoredValues(buildFilterUri("aperture", true), emptySnippet);
+        assertContainsValues(buildFilterUri("aperture", true), snippet);
     }
 
     public void testSearchSnippetEmptyForPhoneInDisplayName() throws Exception {
@@ -3838,12 +3902,9 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
         insertPhoneNumber(rawContactId, "860-555-1234");
         insertEmail(rawContactId, "860@aperturescience.com", true);
 
-        ContentValues emptySnippet = new ContentValues();
-        emptySnippet.clear();
-        emptySnippet.put(Contacts._ID, contactId);
-        emptySnippet.put(SearchSnippetColumns.SNIPPET, (String) null);
+        ContentValues snippet = createSnippetContentValues(contactId, "860-555-1234");
 
-        assertStoredValues(buildFilterUri("860", true), emptySnippet);
+        assertContainsValues(buildFilterUri("860", true), snippet);
     }
 
     public void testSearchSnippetEmptyForEmailInDisplayName() throws Exception {
@@ -3852,12 +3913,10 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
         insertEmail(rawContactId, "cave@aperturescience.com", true);
         insertNote(rawContactId, "Cave Johnson is president of Aperture Science");
 
-        ContentValues emptySnippet = new ContentValues();
-        emptySnippet.clear();
-        emptySnippet.put(Contacts._ID, contactId);
-        emptySnippet.put(SearchSnippetColumns.SNIPPET, (String) null);
+        ContentValues snippet = createSnippetContentValues(contactId,
+                "Cave Johnson is president of Aperture Science");
 
-        assertStoredValues(buildFilterUri("cave", true), emptySnippet);
+        assertContainsValues(buildFilterUri("cave", true), snippet);
     }
 
     public void testDisplayNameUpdateFromStructuredNameUpdate() {
@@ -4490,7 +4549,6 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
         }
 
         assertEquals(1, streamItemIds.size());
-        assertEquals(doomedStreamItemId, streamItemIds.get(0));
     }
 
     public void testInsertStreamItemOlderThanOldestInLimit() {
@@ -7283,7 +7341,7 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
     public void testDataUsageFeedbackAndDelete() {
 
         sMockClock.install();
-
+        sMockClock.setCurrentTimeMillis(System.currentTimeMillis());
         final long startTime = sMockClock.currentTimeMillis();
 
         final long rid1 = RawContactUtil.createRawContactWithName(mResolver, "contact", "a");
@@ -7714,10 +7772,373 @@ public class ContactsProvider2Test extends BaseContactsProvider2Test {
 
         return ids;
     }
+
     /**
      * End delta api tests.
      ******************************************************/
 
+    /*******************************************************
+     * Pinning support tests
+     */
+    public void testPinnedPositionsUpdateForceStar() {
+        final DatabaseAsserts.ContactIdPair i1 = DatabaseAsserts.assertAndCreateContact(mResolver);
+        final DatabaseAsserts.ContactIdPair i2 = DatabaseAsserts.assertAndCreateContact(mResolver);
+        final DatabaseAsserts.ContactIdPair i3 = DatabaseAsserts.assertAndCreateContact(mResolver);
+        final DatabaseAsserts.ContactIdPair i4 = DatabaseAsserts.assertAndCreateContact(mResolver);
+
+        final int unpinned = PinnedPositions.UNPINNED;
+
+        assertStoredValuesWithProjection(Contacts.CONTENT_URI,
+                cv(Contacts._ID, i1.mContactId, Contacts.PINNED, unpinned, Contacts.STARRED, 0),
+                cv(Contacts._ID, i2.mContactId, Contacts.PINNED, unpinned, Contacts.STARRED, 0),
+                cv(Contacts._ID, i3.mContactId, Contacts.PINNED, unpinned, Contacts.STARRED, 0),
+                cv(Contacts._ID, i4.mContactId, Contacts.PINNED, unpinned, Contacts.STARRED, 0)
+        );
+
+        assertStoredValuesWithProjection(RawContacts.CONTENT_URI,
+                cv(RawContacts._ID, i1.mRawContactId, RawContacts.PINNED, unpinned),
+                cv(RawContacts._ID, i2.mRawContactId, RawContacts.PINNED, unpinned),
+                cv(RawContacts._ID, i3.mRawContactId, RawContacts.PINNED, unpinned),
+                cv(RawContacts._ID, i4.mRawContactId, RawContacts.PINNED, unpinned)
+        );
+
+        final ContentValues values = cv(i1.mContactId, 1, i3.mContactId, 3, i4.mContactId, 2);
+        mResolver.update(ContactsContract.PinnedPositions.UPDATE_URI.buildUpon()
+                .appendQueryParameter(PinnedPositions.STAR_WHEN_PINNING, "true").build(),
+                values, null, null);
+
+        // Pinning a contact should automatically star it if we specified the boolean parameter
+
+        assertStoredValuesWithProjection(Contacts.CONTENT_URI,
+                cv(Contacts._ID, i1.mContactId, Contacts.PINNED, 1, Contacts.STARRED, 1),
+                cv(Contacts._ID, i2.mContactId, Contacts.PINNED, unpinned, Contacts.STARRED, 0),
+                cv(Contacts._ID, i3.mContactId, Contacts.PINNED, 3, Contacts.STARRED, 1),
+                cv(Contacts._ID, i4.mContactId, Contacts.PINNED, 2, Contacts.STARRED, 1)
+        );
+
+        // Make sure the values are propagated to raw contacts
+
+        assertStoredValuesWithProjection(RawContacts.CONTENT_URI,
+                cv(RawContacts._ID, i1.mRawContactId, RawContacts.PINNED, 1),
+                cv(RawContacts._ID, i2.mRawContactId, RawContacts.PINNED, unpinned),
+                cv(RawContacts._ID, i3.mRawContactId, RawContacts.PINNED, 3),
+                cv(RawContacts._ID, i4.mRawContactId, RawContacts.PINNED, 2)
+        );
+
+        final ContentValues unpin = cv(i3.mContactId, unpinned);
+        mResolver.update(ContactsContract.PinnedPositions.UPDATE_URI.buildUpon()
+                .appendQueryParameter(PinnedPositions.STAR_WHEN_PINNING, "true").build(),
+                unpin, null, null);
+
+        // Unpinning a contact should automatically unstar it
+        assertStoredValuesWithProjection(Contacts.CONTENT_URI,
+                cv(Contacts._ID, i1.mContactId, Contacts.PINNED, 1, Contacts.STARRED, 1),
+                cv(Contacts._ID, i2.mContactId, Contacts.PINNED, unpinned, Contacts.STARRED, 0),
+                cv(Contacts._ID, i3.mContactId, Contacts.PINNED, unpinned, Contacts.STARRED, 0),
+                cv(Contacts._ID, i4.mContactId, Contacts.PINNED, 2, Contacts.STARRED, 1)
+        );
+
+        assertStoredValuesWithProjection(RawContacts.CONTENT_URI,
+                cv(Contacts._ID, i1.mRawContactId, RawContacts.PINNED, 1, RawContacts.STARRED, 1),
+                cv(Contacts._ID, i2.mRawContactId, RawContacts.PINNED, unpinned,
+                        RawContacts.STARRED, 0),
+                cv(Contacts._ID, i3.mRawContactId, RawContacts.PINNED, unpinned,
+                        RawContacts.STARRED, 0),
+                cv(Contacts._ID, i4.mRawContactId, RawContacts.PINNED, 2, RawContacts.STARRED, 1)
+        );
+    }
+
+    public void testPinnedPositionsUpdateDontForceStar() {
+        final DatabaseAsserts.ContactIdPair i1 = DatabaseAsserts.assertAndCreateContact(mResolver);
+        final DatabaseAsserts.ContactIdPair i2 = DatabaseAsserts.assertAndCreateContact(mResolver);
+        final DatabaseAsserts.ContactIdPair i3 = DatabaseAsserts.assertAndCreateContact(mResolver);
+        final DatabaseAsserts.ContactIdPair i4 = DatabaseAsserts.assertAndCreateContact(mResolver);
+
+        final int unpinned = PinnedPositions.UNPINNED;
+
+        final ContentValues values = cv(i1.mContactId, 1, i3.mContactId, 3, i4.mContactId, 2);
+        mResolver.update(ContactsContract.PinnedPositions.UPDATE_URI, values, null, null);
+
+        // Pinning a contact should not automatically star it
+
+        assertStoredValuesWithProjection(Contacts.CONTENT_URI,
+                cv(Contacts._ID, i1.mContactId, Contacts.PINNED, 1, Contacts.STARRED, 0),
+                cv(Contacts._ID, i2.mContactId, Contacts.PINNED, unpinned, Contacts.STARRED, 0),
+                cv(Contacts._ID, i3.mContactId, Contacts.PINNED, 3, Contacts.STARRED, 0),
+                cv(Contacts._ID, i4.mContactId, Contacts.PINNED, 2, Contacts.STARRED, 0)
+        );
+
+        // Make sure the values are propagated to raw contacts
+
+        assertStoredValuesWithProjection(RawContacts.CONTENT_URI,
+                cv(RawContacts._ID, i1.mRawContactId, RawContacts.PINNED, 1,
+                        RawContacts.STARRED, 0),
+                cv(RawContacts._ID, i2.mRawContactId, RawContacts.PINNED, unpinned,
+                        RawContacts.STARRED, 0),
+                cv(RawContacts._ID, i3.mRawContactId, RawContacts.PINNED, 3,
+                        RawContacts.STARRED, 0),
+                cv(RawContacts._ID, i4.mRawContactId, RawContacts.PINNED, 2,
+                        RawContacts.STARRED, 0)
+        );
+
+
+        // Manually star contact 3
+        assertEquals(1, updateItem(Contacts.CONTENT_URI, i3.mContactId, Contacts.STARRED, "1"));
+
+        // Check the third contact and raw contact is starred
+        assertStoredValuesWithProjection(Contacts.CONTENT_URI,
+                cv(Contacts._ID, i1.mContactId, Contacts.PINNED, 1, Contacts.STARRED, 0),
+                cv(Contacts._ID, i2.mContactId, Contacts.PINNED, unpinned, Contacts.STARRED, 0),
+                cv(Contacts._ID, i3.mContactId, Contacts.PINNED, 3, Contacts.STARRED, 1),
+                cv(Contacts._ID, i4.mContactId, Contacts.PINNED, 2, Contacts.STARRED, 0)
+        );
+
+        assertStoredValuesWithProjection(RawContacts.CONTENT_URI,
+                cv(RawContacts._ID, i1.mRawContactId, RawContacts.PINNED, 1,
+                        RawContacts.STARRED, 0),
+                cv(RawContacts._ID, i2.mRawContactId, RawContacts.PINNED, unpinned,
+                        RawContacts.STARRED, 0),
+                cv(RawContacts._ID, i3.mRawContactId, RawContacts.PINNED, 3,
+                        RawContacts.STARRED, 1),
+                cv(RawContacts._ID, i4.mRawContactId, RawContacts.PINNED, 2,
+                        RawContacts.STARRED, 0)
+        );
+
+        final ContentValues unpin = cv(i3.mContactId, unpinned);
+
+        mResolver.update(ContactsContract.PinnedPositions.UPDATE_URI, unpin, null, null);
+
+        // Unpinning a contact should not automatically unstar it
+        assertStoredValuesWithProjection(Contacts.CONTENT_URI,
+                cv(Contacts._ID, i1.mContactId, Contacts.PINNED, 1, Contacts.STARRED, 0),
+                cv(Contacts._ID, i2.mContactId, Contacts.PINNED, unpinned, Contacts.STARRED, 0),
+                cv(Contacts._ID, i3.mContactId, Contacts.PINNED, unpinned, Contacts.STARRED, 1),
+                cv(Contacts._ID, i4.mContactId, Contacts.PINNED, 2, Contacts.STARRED, 0)
+        );
+
+        assertStoredValuesWithProjection(RawContacts.CONTENT_URI,
+                cv(Contacts._ID, i1.mRawContactId, RawContacts.PINNED, 1, RawContacts.STARRED, 0),
+                cv(Contacts._ID, i2.mRawContactId, RawContacts.PINNED, unpinned,
+                        RawContacts.STARRED, 0),
+                cv(Contacts._ID, i3.mRawContactId, RawContacts.PINNED, unpinned,
+                        RawContacts.STARRED, 1),
+                cv(Contacts._ID, i4.mRawContactId, RawContacts.PINNED, 2, RawContacts.STARRED, 0)
+        );
+    }
+
+    public void testPinnedPositionsUpdateIllegalValues() {
+        final DatabaseAsserts.ContactIdPair i1 = DatabaseAsserts.assertAndCreateContact(mResolver);
+        final DatabaseAsserts.ContactIdPair i2 = DatabaseAsserts.assertAndCreateContact(mResolver);
+        final DatabaseAsserts.ContactIdPair i3 = DatabaseAsserts.assertAndCreateContact(mResolver);
+        final DatabaseAsserts.ContactIdPair i4 = DatabaseAsserts.assertAndCreateContact(mResolver);
+
+        assertStoredValuesWithProjection(Contacts.CONTENT_URI,
+                cv(Contacts._ID, i1.mContactId, Contacts.PINNED, PinnedPositions.UNPINNED),
+                cv(Contacts._ID, i2.mContactId, Contacts.PINNED, PinnedPositions.UNPINNED),
+                cv(Contacts._ID, i3.mContactId, Contacts.PINNED, PinnedPositions.UNPINNED),
+                cv(Contacts._ID, i4.mContactId, Contacts.PINNED, PinnedPositions.UNPINNED)
+        );
+
+        // Unsupported string
+        final ContentValues values = cv(i1.mContactId, 1, i3.mContactId, 3, i4.mContactId,
+                "undemotemeplease!");
+        try {
+            mResolver.update(ContactsContract.PinnedPositions.UPDATE_URI, values, null, null);
+            fail("Pinned position must be an integer.");
+        } catch (IllegalArgumentException expected) {
+        }
+
+        // Float
+        final ContentValues values2 = cv(i1.mContactId, "1.1");
+        try {
+            mResolver.update(ContactsContract.PinnedPositions.UPDATE_URI, values2, null, null);
+            fail("Pinned position must be an integer");
+        } catch (IllegalArgumentException expected) {
+        }
+
+        // nothing should have been changed
+
+        assertStoredValuesWithProjection(Contacts.CONTENT_URI,
+                cv(Contacts._ID, i1.mContactId, Contacts.PINNED, PinnedPositions.UNPINNED),
+                cv(Contacts._ID, i2.mContactId, Contacts.PINNED, PinnedPositions.UNPINNED),
+                cv(Contacts._ID, i3.mContactId, Contacts.PINNED, PinnedPositions.UNPINNED),
+                cv(Contacts._ID, i4.mContactId, Contacts.PINNED, PinnedPositions.UNPINNED)
+        );
+
+        assertStoredValuesWithProjection(RawContacts.CONTENT_URI,
+                cv(RawContacts._ID, i1.mRawContactId, RawContacts.PINNED, PinnedPositions.UNPINNED),
+                cv(RawContacts._ID, i2.mRawContactId, RawContacts.PINNED, PinnedPositions.UNPINNED),
+                cv(RawContacts._ID, i3.mRawContactId, RawContacts.PINNED, PinnedPositions.UNPINNED),
+                cv(RawContacts._ID, i4.mRawContactId, RawContacts.PINNED, PinnedPositions.UNPINNED)
+        );
+    }
+
+    public void testPinnedPositionsAfterJoinAndSplit() {
+        final DatabaseAsserts.ContactIdPair i1 = DatabaseAsserts.assertAndCreateContact(mResolver);
+        final DatabaseAsserts.ContactIdPair i2 = DatabaseAsserts.assertAndCreateContact(mResolver);
+        final DatabaseAsserts.ContactIdPair i3 = DatabaseAsserts.assertAndCreateContact(mResolver);
+        final DatabaseAsserts.ContactIdPair i4 = DatabaseAsserts.assertAndCreateContact(mResolver);
+        final DatabaseAsserts.ContactIdPair i5 = DatabaseAsserts.assertAndCreateContact(mResolver);
+        final DatabaseAsserts.ContactIdPair i6 = DatabaseAsserts.assertAndCreateContact(mResolver);
+
+        final ContentValues values = cv(i1.mContactId, 1, i2.mContactId, 2, i3.mContactId, 3,
+                i5.mContactId, 5, i6.mContactId, 6);
+        mResolver.update(ContactsContract.PinnedPositions.UPDATE_URI.buildUpon()
+                .appendQueryParameter(PinnedPositions.STAR_WHEN_PINNING, "true").build(),
+                values, null, null);
+
+        // aggregate raw contact 1 and 4 together.
+        setAggregationException(AggregationExceptions.TYPE_KEEP_TOGETHER, i1.mRawContactId,
+                i4.mRawContactId);
+
+        // If only one contact is pinned, the resulting contact should inherit the pinned position
+        assertStoredValuesWithProjection(Contacts.CONTENT_URI,
+                cv(Contacts._ID, i1.mContactId, Contacts.PINNED, 1),
+                cv(Contacts._ID, i2.mContactId, Contacts.PINNED, 2),
+                cv(Contacts._ID, i3.mContactId, Contacts.PINNED, 3),
+                cv(Contacts._ID, i5.mContactId, Contacts.PINNED, 5),
+                cv(Contacts._ID, i6.mContactId, Contacts.PINNED, 6)
+        );
+
+        assertStoredValuesWithProjection(RawContacts.CONTENT_URI,
+                cv(RawContacts._ID, i1.mRawContactId, RawContacts.PINNED, 1,
+                        RawContacts.STARRED, 1),
+                cv(RawContacts._ID, i2.mRawContactId, RawContacts.PINNED, 2,
+                        RawContacts.STARRED, 1),
+                cv(RawContacts._ID, i3.mRawContactId, RawContacts.PINNED, 3,
+                        RawContacts.STARRED, 1),
+                cv(RawContacts._ID, i4.mRawContactId, RawContacts.PINNED, PinnedPositions.UNPINNED,
+                        RawContacts.STARRED, 0),
+                cv(RawContacts._ID, i5.mRawContactId, RawContacts.PINNED, 5,
+                        RawContacts.STARRED, 1),
+                cv(RawContacts._ID, i6.mRawContactId, RawContacts.PINNED, 6,
+                        RawContacts.STARRED, 1)
+        );
+
+        // aggregate raw contact 2 and 3 together.
+        setAggregationException(AggregationExceptions.TYPE_KEEP_TOGETHER, i2.mRawContactId,
+                i3.mRawContactId);
+
+        // If both raw contacts are pinned, the resulting contact should inherit the lower
+        // pinned position
+        assertStoredValuesWithProjection(Contacts.CONTENT_URI,
+                cv(Contacts._ID, i1.mContactId, Contacts.PINNED, 1),
+                cv(Contacts._ID, i2.mContactId, Contacts.PINNED, 2),
+                cv(Contacts._ID, i5.mContactId, Contacts.PINNED, 5),
+                cv(Contacts._ID, i6.mContactId, Contacts.PINNED, 6)
+        );
+
+        assertStoredValuesWithProjection(RawContacts.CONTENT_URI,
+                cv(RawContacts._ID, i1.mRawContactId, RawContacts.PINNED, 1),
+                cv(RawContacts._ID, i2.mRawContactId, RawContacts.PINNED, 2),
+                cv(RawContacts._ID, i3.mRawContactId, RawContacts.PINNED, 3),
+                cv(RawContacts._ID, i4.mRawContactId, RawContacts.PINNED,
+                        PinnedPositions.UNPINNED),
+                cv(RawContacts._ID, i5.mRawContactId, RawContacts.PINNED, 5),
+                cv(RawContacts._ID, i6.mRawContactId, RawContacts.PINNED, 6)
+        );
+
+        // split the aggregated raw contacts
+        setAggregationException(AggregationExceptions.TYPE_KEEP_SEPARATE, i1.mRawContactId,
+                i4.mRawContactId);
+
+        // raw contacts should be unpinned after being split, but still starred
+        assertStoredValuesWithProjection(RawContacts.CONTENT_URI,
+                cv(RawContacts._ID, i1.mRawContactId, RawContacts.PINNED, PinnedPositions.UNPINNED,
+                        RawContacts.STARRED, 1),
+                cv(RawContacts._ID, i2.mRawContactId, RawContacts.PINNED, 2,
+                        RawContacts.STARRED, 1),
+                cv(RawContacts._ID, i3.mRawContactId, RawContacts.PINNED, 3,
+                        RawContacts.STARRED, 1),
+                cv(RawContacts._ID, i4.mRawContactId, RawContacts.PINNED, PinnedPositions.UNPINNED,
+                        RawContacts.STARRED, 0),
+                cv(RawContacts._ID, i5.mRawContactId, RawContacts.PINNED, 5,
+                        RawContacts.STARRED, 1),
+                cv(RawContacts._ID, i6.mRawContactId, RawContacts.PINNED, 6,
+                        RawContacts.STARRED, 1)
+        );
+
+
+
+        // now demote contact 5
+        final ContentValues cv = cv(i5.mContactId, PinnedPositions.DEMOTED);
+        mResolver.update(ContactsContract.PinnedPositions.UPDATE_URI.buildUpon().build(),
+                cv, null, null);
+
+        // Get new contact Ids for contacts composing of raw contacts 1 and 4 because they have
+        // changed.
+        final long cId1 = RawContactUtil.queryContactIdByRawContactId(mResolver, i1.mRawContactId);
+        final long cId4 = RawContactUtil.queryContactIdByRawContactId(mResolver, i4.mRawContactId);
+
+        assertStoredValuesWithProjection(Contacts.CONTENT_URI,
+                cv(Contacts._ID, cId1, Contacts.PINNED, PinnedPositions.UNPINNED),
+                cv(Contacts._ID, i2.mContactId, Contacts.PINNED, 2),
+                cv(Contacts._ID, cId4, Contacts.PINNED, PinnedPositions.UNPINNED),
+                cv(Contacts._ID, i5.mContactId, Contacts.PINNED, PinnedPositions.DEMOTED),
+                cv(Contacts._ID, i6.mContactId, Contacts.PINNED, 6)
+        );
+
+        // aggregate contacts 5 and 6 together
+        setAggregationException(AggregationExceptions.TYPE_KEEP_TOGETHER, i5.mRawContactId,
+                i6.mRawContactId);
+
+        // The resulting contact should have a pinned value of 6
+        assertStoredValuesWithProjection(Contacts.CONTENT_URI,
+                cv(Contacts._ID, cId1, Contacts.PINNED, PinnedPositions.UNPINNED),
+                cv(Contacts._ID, i2.mContactId, Contacts.PINNED, 2),
+                cv(Contacts._ID, cId4, Contacts.PINNED, PinnedPositions.UNPINNED),
+                cv(Contacts._ID, i5.mContactId, Contacts.PINNED, 6)
+        );
+    }
+
+    public void testPinnedPositionsAfterDemoteAndUndemote() {
+        final DatabaseAsserts.ContactIdPair i1 = DatabaseAsserts.assertAndCreateContact(mResolver);
+        final DatabaseAsserts.ContactIdPair i2 = DatabaseAsserts.assertAndCreateContact(mResolver);
+
+        final ContentValues values = cv(i1.mContactId, 0, i2.mContactId, PinnedPositions.DEMOTED);
+
+        // Pin contact 1 and demote contact 2
+        mResolver.update(ContactsContract.PinnedPositions.UPDATE_URI.buildUpon().
+                appendQueryParameter(PinnedPositions.STAR_WHEN_PINNING, "true").
+                build(), values, null, null);
+
+        assertStoredValuesWithProjection(Contacts.CONTENT_URI,
+                cv(Contacts._ID, i1.mContactId, Contacts.PINNED, 0, Contacts.STARRED, 1),
+                cv(Contacts._ID, i2.mContactId, Contacts.PINNED, PinnedPositions.DEMOTED,
+                        Contacts.STARRED, 0)
+        );
+
+        assertStoredValuesWithProjection(RawContacts.CONTENT_URI,
+                cv(RawContacts._ID, i1.mRawContactId, RawContacts.PINNED, 0,
+                        RawContacts.STARRED, 1),
+                cv(RawContacts._ID, i2.mRawContactId, RawContacts.PINNED, PinnedPositions.DEMOTED,
+                        RawContacts.STARRED, 0)
+        );
+
+        // Now undemote both contacts
+        final ContentValues values2 = cv(i1.mContactId, PinnedPositions.UNDEMOTE, i2.mContactId,
+                PinnedPositions.UNDEMOTE);
+        mResolver.update(ContactsContract.PinnedPositions.UPDATE_URI.buildUpon().
+                build(), values2, null, null);
+
+        // Contact 1 remains pinned at 0, while contact 2 becomes unpinned
+        assertStoredValuesWithProjection(Contacts.CONTENT_URI,
+                cv(Contacts._ID, i1.mContactId, Contacts.PINNED, 0, Contacts.STARRED, 1),
+                cv(Contacts._ID, i2.mContactId, Contacts.PINNED, PinnedPositions.UNPINNED,
+                        Contacts.STARRED, 0)
+        );
+
+        assertStoredValuesWithProjection(RawContacts.CONTENT_URI,
+                cv(RawContacts._ID, i1.mRawContactId, RawContacts.PINNED, 0,
+                        RawContacts.STARRED, 1),
+                cv(RawContacts._ID, i2.mRawContactId, RawContacts.PINNED, PinnedPositions.UNPINNED,
+                        RawContacts.STARRED, 0)
+        );
+    }
+
+    /**
+     * End pinning support tests
+     ******************************************************/
 
     private Cursor queryGroupMemberships(Account account) {
         Cursor c = mResolver.query(TestUtil.maybeAddAccountQueryParameters(Data.CONTENT_URI,

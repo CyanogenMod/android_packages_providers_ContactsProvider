@@ -34,6 +34,8 @@ import android.provider.OpenableColumns;
 import android.provider.VoicemailContract.Voicemails;
 import android.util.Log;
 
+import com.google.common.collect.ImmutableSet;
+
 import com.android.common.content.ProjectionMap;
 import com.android.providers.contacts.VoicemailContentProvider.UriData;
 import com.android.providers.contacts.util.CloseUtils;
