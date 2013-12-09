@@ -399,6 +399,8 @@ public class ContactLocaleUtils {
     private final Locale mLocale;
     private final String mLanguage;
     private final ContactLocaleUtilsBase mUtils;
+    private final ContactLocaleUtilsBase mUtilsChinese = new SimplifiedChineseContactUtils(
+            Locale.CHINA);
 
     private ContactLocaleUtils(Locale locale) {
         if (locale == null) {
@@ -476,6 +478,9 @@ public class ContactLocaleUtils {
                 !CHINESE_LANGUAGE.equals(mLanguage) &&
                 !KOREAN_LANGUAGE.equals(mLanguage)) {
             return JapaneseContactUtils.getRomajiNameLookupKeys(name);
+        }
+        if (nameStyle == FullNameStyle.CHINESE) {
+            return mUtilsChinese.getNameLookupKeys(name, nameStyle);
         }
         return mUtils.getNameLookupKeys(name, nameStyle);
     }
