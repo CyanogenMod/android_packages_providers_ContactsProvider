@@ -115,7 +115,7 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
      *   800-899 Kitkat
      * </pre>
      */
-    static final int DATABASE_VERSION = 804;
+    static final int DATABASE_VERSION = 805;
 
     private static final String DATABASE_NAME = "contacts2.db";
     private static final String DATABASE_PRESENCE = "presence_db";
@@ -2536,6 +2536,13 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
             oldVersion = 804;
         }
 
+        if (oldVersion < 805) {
+         // This version add one column to calls table which is used to save
+         // the subscription for the calls slot.
+            upgradeToVersion805(db);
+            oldVersion = 805;
+        }
+
         if (upgradeViewsAndTriggers) {
             createContactsViews(db);
             createGroupsView(db);
@@ -4073,6 +4080,15 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
                 + " SELECT contact_id,content,name,name_digit,tokens from search_index_temp");
         db.execSQL("DROP TABLE IF EXISTS search_index_temp");
         updateSqliteStats(db);
+    }
+
+    private void upgradeToVersion805(SQLiteDatabase db) {
+        try {
+            db.execSQL("ALTER TABLE " + Tables.CALLS
+                    + " ADD " + Calls.SUBSCRIPTION + " INTEGER NOT NULL DEFAULT 0;");
+        } catch (SQLException e) {
+            Log.w(TAG, "Exception upgrading contacts2.db from 803 to 804 " + e);
+        }
     }
 
     public String extractHandleFromEmailAddress(String email) {
