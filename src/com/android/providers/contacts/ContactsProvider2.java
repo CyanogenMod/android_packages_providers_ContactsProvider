@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2009 The Android Open Source Project
- *
+
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -74,6 +74,7 @@ import android.provider.ContactsContract.CommonDataKinds.Email;
 import android.provider.ContactsContract.CommonDataKinds.GroupMembership;
 import android.provider.ContactsContract.CommonDataKinds.Identity;
 import android.provider.ContactsContract.CommonDataKinds.Im;
+import android.provider.ContactsContract.CommonDataKinds.LocalGroup;
 import android.provider.ContactsContract.CommonDataKinds.Nickname;
 import android.provider.ContactsContract.CommonDataKinds.Note;
 import android.provider.ContactsContract.CommonDataKinds.Organization;
@@ -327,6 +328,8 @@ public class ContactsProvider2 extends AbstractContactsProvider
     private static final int CALLABLES_FILTER = 3013;
     private static final int CONTACTABLES = 3014;
     private static final int CONTACTABLES_FILTER = 3015;
+    private static final int LOCAL_GROUPS_ID = 3016;
+    private static final int LOCAL_GROUPS_FILTER = 3017;
 
     private static final int PHONE_LOOKUP = 4000;
 
@@ -1203,6 +1206,11 @@ public class ContactsProvider2 extends AbstractContactsProvider
         matcher.addURI(ContactsContract.AUTHORITY, "data/emails/filter/*", EMAILS_FILTER);
         matcher.addURI(ContactsContract.AUTHORITY, "data/postals", POSTALS);
         matcher.addURI(ContactsContract.AUTHORITY, "data/postals/#", POSTALS_ID);
+        matcher.addURI(ContactsContract.AUTHORITY, "data/local-groups/#", LOCAL_GROUPS_ID);
+        matcher.addURI(ContactsContract.AUTHORITY, "data/local-groups/filter",
+                LOCAL_GROUPS_FILTER);
+        matcher.addURI(ContactsContract.AUTHORITY, "data/local-groups/filter/*",
+                LOCAL_GROUPS_FILTER);
         /** "*" is in CSV form with data ids ("123,456,789") */
         matcher.addURI(ContactsContract.AUTHORITY, "data/usagefeedback/*", DATA_USAGE_FEEDBACK_ID);
         matcher.addURI(ContactsContract.AUTHORITY, "data/callables/", CALLABLES);
@@ -6117,7 +6125,14 @@ public class ContactsProvider2 extends AbstractContactsProvider
 
                 sb.append("))");
                 qb.appendWhere(sb);
+                break;
+            }
 
+            case LOCAL_GROUPS_ID:
+            case LOCAL_GROUPS_FILTER: {
+                setTablesAndProjectionMapForData(qb, uri, projection, false);
+                qb.appendWhere(" AND " + Data.MIMETYPE + " = '" + LocalGroup.CONTENT_ITEM_TYPE
+                        + "' AND " + Data.DATA1 + " = '" + uri.getLastPathSegment() + "'");
                 break;
             }
 

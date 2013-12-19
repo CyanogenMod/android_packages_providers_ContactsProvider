@@ -284,12 +284,13 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
                 " LEFT OUTER JOIN (SELECT "
                         + "data.data1 AS member_count_group_id, "
                         + "COUNT(data.raw_contact_id) AS group_member_count "
-                    + "FROM data "
-                    + "WHERE "
+                        + "FROM data , raw_contacts "
+                        + "WHERE data.raw_contact_id = raw_contacts._id and raw_contacts.deleted" +
+                        "!= 1 and "
                         + "data.mimetype_id = (SELECT _id FROM mimetypes WHERE "
-                            + "mimetypes.mimetype = '" + GroupMembership.CONTENT_ITEM_TYPE + "')"
-                    + "GROUP BY member_count_group_id) AS member_count_table" // End of inner query
-                + " ON (groups._id = member_count_table.member_count_group_id)";
+                        + "mimetypes.mimetype = '" + GroupMembership.CONTENT_ITEM_TYPE + "')"
+                        + "GROUP BY member_count_group_id) AS member_count_table"
+                        + " ON (groups._id = member_count_table.member_count_group_id)";
     }
 
     public interface Views {

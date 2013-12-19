@@ -61,6 +61,9 @@
             android:permission="com.android.voicemail.permission.ADD_VOICEMAIL">
         </provider>
 
+        <provider android:name="LocalGroupsProvider"
+            android:authorities="com.android.contacts.groups"/>
+
         <!-- Handles database upgrades after OTAs, then disables itself -->
         <receiver android:name="ContactsUpgradeReceiver">
             <!-- This broadcast is sent after the core system has finished

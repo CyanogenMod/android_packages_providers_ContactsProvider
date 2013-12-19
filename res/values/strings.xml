@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Copyright (C) 2009 The Android Open Source Project
-
      Licensed under the Apache License, Version 2.0 (the "License");
      you may not use this file except in compliance with the License.
      You may obtain a copy of the License at
@@ -58,6 +57,10 @@
          Note that the trailing space is important, and that to achieve it we have to wrap the
          string in double quotes. -->
     <string name="voicemail_from_column">"Voicemail from "</string>
+
+    <string name="group_family">Family</string>
+    <string name="group_friend">Friends</string>
+    <string name="group_work">Coworkers</string>
 
     <!-- Debug tool - title of the dialog which copies the contact database into the external storage. [CHAR LIMIT=NONE] -->
     <string name="debug_dump_title">Copy contacts database</string>
