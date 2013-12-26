@@ -1772,13 +1772,18 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
         String contactsSelect = "SELECT "
                 + ContactsColumns.CONCRETE_ID + " AS " + Contacts._ID + ","
                 + contactsColumns + ", "
+                + AccountsColumns.ACCOUNT_NAME + ", "
+                + AccountsColumns.ACCOUNT_TYPE + ", "
                 + buildDisplayPhotoUriAlias(ContactsColumns.CONCRETE_ID, Contacts.PHOTO_URI) + ", "
                 + buildThumbnailPhotoUriAlias(ContactsColumns.CONCRETE_ID,
                         Contacts.PHOTO_THUMBNAIL_URI) + ", "
                 + dbForProfile() + " AS " + Contacts.IS_USER_PROFILE
                 + " FROM " + Tables.CONTACTS
                 + " JOIN " + Tables.RAW_CONTACTS + " AS name_raw_contact ON("
-                +   Contacts.NAME_RAW_CONTACT_ID + "=name_raw_contact." + RawContacts._ID + ")";
+                +   Contacts.NAME_RAW_CONTACT_ID + "=name_raw_contact." + RawContacts._ID + ")"
+                + " JOIN " + Tables.ACCOUNTS + " AS name_accounts ON("
+                + "name_raw_contact." + RawContactsColumns.ACCOUNT_ID + "=name_accounts."
+                + AccountsColumns._ID + ")";
 
         db.execSQL("CREATE VIEW " + Views.CONTACTS + " AS " + contactsSelect);
 

@@ -260,6 +260,8 @@ public class ContactsProvider2 extends AbstractContactsProvider
     private static final String FREQUENT_ORDER_BY = DataUsageStatColumns.TIMES_USED + " DESC,"
             + Contacts.DISPLAY_NAME + " COLLATE LOCALIZED ASC";
 
+    public static String WITHOUT_SIM_FLAG  = "no_sim";
+
     /* package */ static final String UPDATE_TIMES_CONTACTED_CONTACTS_TABLE =
             "UPDATE " + Tables.CONTACTS + " SET " + Contacts.TIMES_CONTACTED + "=" +
             " ifnull(" + Contacts.TIMES_CONTACTED + ",0)+1" +
@@ -744,6 +746,8 @@ public class ContactsProvider2 extends AbstractContactsProvider
             .add(Contacts.IS_USER_PROFILE)
             .addAll(sContactsColumns)
             .addAll(sContactsPresenceColumns)
+            .add(RawContacts.ACCOUNT_TYPE)
+            .add(RawContacts.ACCOUNT_NAME)
             .build();
 
     /** Contains just the contacts columns */
@@ -890,6 +894,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
             .addAll(sDataColumns)
             .addAll(sDataPresenceColumns)
             .addAll(sContactsColumns)
+            .addAll(sRawContactColumns)
             .addAll(sContactPresenceColumns)
             .addAll(sDataUsageColumns)
             .build();
@@ -5168,6 +5173,8 @@ public class ContactsProvider2 extends AbstractContactsProvider
             .add("display_name")
             .add("photo_id")
             .add("lookup")
+            .add(RawContacts.ACCOUNT_TYPE)
+            .add(RawContacts.ACCOUNT_NAME)
             .build();
 
     private String[] getStringsFromNumber(char number) {
@@ -5711,23 +5718,58 @@ public class ContactsProvider2 extends AbstractContactsProvider
             case SMART_DIALER_FILTER: {
                 String filter = uri.getQueryParameter("filter");
                 if(TextUtils.isEmpty(filter)) break;
+                String nameFilter = filter.replaceFirst("^1+", "");
+                if(TextUtils.isEmpty(nameFilter)){
+                    nameFilter = filter;
+                }
 
-                String querySelect = "view_contacts JOIN (SELECT raw_contact_id, "
-                    + "normalized_number, data_id FROM phone_lookup WHERE normalized='0')"
-                    + " ON (name_raw_contact_id=raw_contact_id) "
-                    + " LEFT OUTER JOIN agg_presence ON (_id = agg_presence.presence_contact_id)"
-                    + " LEFT OUTER JOIN status_updates contacts_status_updates"
-                    + " ON (status_update_id=contacts_status_updates.status_update_data_id) "
-                    + " WHERE (_id IN (SELECT contact_id FROM search_index WHERE name_digit like '"
-                    + filter
-                    + "%' or name_digit like '% "
-                    + filter
-                    + "%')"
-                    + " or normalized_number like '%"
-                    + filter
-                    + "%') AND normalized_number is not null AND _id IN default_directory "
-                    + "order by view_contacts.last_time_contacted desc";
+                String querySelect = null;
+                String querySelect1 = "view_contacts JOIN (SELECT raw_contact_id, "
+                        + "normalized_number, data_id FROM phone_lookup WHERE normalized='0'";
+                String querySelect2 =
+                        ") ON (name_raw_contact_id=raw_contact_id) "
+                        + " LEFT OUTER JOIN agg_presence ON (_id ="
+                        + " agg_presence.presence_contact_id)"
+                        + " LEFT OUTER JOIN status_updates contacts_status_updates"
+                        + " ON (status_update_id=contacts_status_updates.status_update_data_id) "
+                        + " WHERE (_id IN (SELECT contact_id FROM search_index"
+                        + " WHERE name_digit like '"
+                        + nameFilter
+                        + "%' or name_digit like '% "
+                        + nameFilter
+                        + "%')"
+                        + " or normalized_number like '%"
+                        + filter
+                        + "%') AND normalized_number is not null AND _id IN default_directory "
+                        + "order by view_contacts.last_time_contacted desc";
+                String withoutSim = getQueryParameter(uri, WITHOUT_SIM_FLAG);
+                if ("true".equals(withoutSim)) {
+                    final StringBuilder sb = new StringBuilder();
+                    final long[] accountId = getAccountIdWithoutSim(uri);
 
+                    if (null == accountId || 0 == accountId.length) {
+                        // No such account.
+                        sb.setLength(0);
+                        sb.append("(1)");
+                    } else {
+                        sb.append(
+                                "(raw_contact_id not IN (" +
+                                        "SELECT " + RawContacts._ID + " FROM "
+                                        + Tables.RAW_CONTACTS +
+                                        " WHERE " + RawContacts.CONTACT_ID + " not NULL AND ( ");
+                        for (int i = 0; i < accountId.length; i++) {
+                            sb.append(RawContactsColumns.ACCOUNT_ID + "="
+                                + accountId[i]);
+                            if (i != accountId.length-1) {
+                                sb.append(" OR ");
+                            }
+                        }
+                        sb.append(")))");
+                    }
+                    querySelect = querySelect1 + " AND " + sb.toString() + querySelect2;
+                } else {
+                    querySelect = querySelect1 + querySelect2;
+                }
                 qb.setTables(querySelect);
                 qb.setProjectionMap(SMARTR_DIALER_FILTER_PROJECTION);
                 break;
@@ -7068,6 +7110,58 @@ public class ContactsProvider2 extends AbstractContactsProvider
         StringBuilder sb = new StringBuilder();
         sb.append(Views.CONTACTS);
 
+        /* Do not show contacts when SIM card is disabled for CONTACTS_FILTER */
+        StringBuilder sbWhere = new StringBuilder();
+        String withoutSim = getQueryParameter(uri, WITHOUT_SIM_FLAG );
+        if ("true".equals(withoutSim)) {
+            final long[] accountId = getAccountIdWithoutSim(uri);
+            if (accountId == null) {
+                // No such account.
+                sbWhere.setLength(0);
+                sbWhere.append("(1=2)");
+            } else {
+                if (accountId.length > 0) {
+                    sbWhere.append(" (" + Contacts._ID + " not IN (" + "SELECT "
+                            + RawContacts.CONTACT_ID + " FROM "
+                            + Tables.RAW_CONTACTS + " WHERE "
+                            + RawContacts.CONTACT_ID + " not NULL AND ( ");
+                    for (int i = 0; i < accountId.length; i++) {
+                        sbWhere.append(RawContactsColumns.ACCOUNT_ID + "="
+                                + accountId[i]);
+                        if (i != accountId.length - 1) {
+                            sbWhere.append(" OR ");
+                        }
+                    }
+                    sbWhere.append(")))");
+                }
+            }
+        } else {
+            final AccountWithDataSet accountWithDataSet = getAccountWithDataSetFromUri(uri);
+            // Accounts are valid by only checking one parameter, since we've
+            // already ruled out partial accounts.
+            final boolean validAccount = !TextUtils.isEmpty(accountWithDataSet.getAccountName());
+            if (validAccount) {
+                final Long accountId = mDbHelper.get().getAccountIdOrNull(accountWithDataSet);
+                if (accountId != null) {
+                    sbWhere.append(" INNER JOIN (SELECT "
+                            + RawContacts.CONTACT_ID
+                            + " AS raw_contact_contact_id FROM "
+                            + Tables.RAW_CONTACTS + " WHERE "
+                            + RawContactsColumns.ACCOUNT_ID + " = "
+                            + accountId
+                            + ") ON raw_contact_contact_id = " + Contacts._ID);
+                }
+            }
+        }
+
+        if (!TextUtils.isEmpty(sbWhere.toString())) {
+            if ("true".equals(withoutSim)) {
+                qb.appendWhere(sbWhere.toString());
+            } else {
+                sb.append(sbWhere.toString());
+            }
+        }
+
         if (filter != null) {
             filter = filter.trim();
         }
@@ -7482,22 +7576,50 @@ public class ContactsProvider2 extends AbstractContactsProvider
             sb.append("(1)");
         }
 
-        final AccountWithDataSet accountWithDataSet = getAccountWithDataSetFromUri(uri);
-        // Accounts are valid by only checking one parameter, since we've
-        // already ruled out partial accounts.
-        final boolean validAccount = !TextUtils.isEmpty(accountWithDataSet.getAccountName());
-        if (validAccount) {
-            final Long accountId = mDbHelper.get().getAccountIdOrNull(accountWithDataSet);
+        String withoutSim = getQueryParameter(uri, WITHOUT_SIM_FLAG );
+        if ("true".equals(withoutSim)) {
+            final long[] accountId = getAccountIdWithoutSim(uri);
+
             if (accountId == null) {
                 // No such account.
                 sb.setLength(0);
                 sb.append("(1=2)");
             } else {
-                sb.append(
-                        " AND (" + Contacts._ID + " IN (" +
-                        "SELECT " + RawContacts.CONTACT_ID + " FROM " + Tables.RAW_CONTACTS +
-                        " WHERE " + RawContactsColumns.ACCOUNT_ID + "=" + accountId.toString() +
-                        "))");
+                if (accountId.length > 0) {
+                    sb.append(
+                            " AND (" + Contacts._ID + " not IN (" +
+                                    "SELECT " + RawContacts.CONTACT_ID + " FROM "
+                                    + Tables.RAW_CONTACTS +
+                                    " WHERE " + RawContacts.CONTACT_ID + " not NULL AND ( ");
+                    for (int i = 0; i < accountId.length; i++) {
+                        sb.append(RawContactsColumns.ACCOUNT_ID + "="
+                                + accountId[i]);
+                        if (i != accountId.length - 1) {
+                            sb.append(" or ");
+                        }
+                    }
+                    sb.append(")))");
+                }
+            }
+        }
+        else {
+            final AccountWithDataSet accountWithDataSet = getAccountWithDataSetFromUri(uri);
+            // Accounts are valid by only checking one parameter, since we've
+            // already ruled out partial accounts.
+            final boolean validAccount = !TextUtils.isEmpty(accountWithDataSet.getAccountName());
+            if (validAccount) {
+                final Long accountId = mDbHelper.get().getAccountIdOrNull(accountWithDataSet);
+                if (accountId == null) {
+                    // No such account.
+                    sb.setLength(0);
+                    sb.append("(1=2)");
+                } else {
+                    sb.append(
+                            " AND (" + Contacts._ID + " IN (" +
+                            "SELECT " + RawContacts.CONTACT_ID + " FROM " + Tables.RAW_CONTACTS +
+                            " WHERE " + RawContactsColumns.ACCOUNT_ID + "=" + accountId.toString() +
+                            "))");
+                }
             }
         }
         qb.appendWhere(sb.toString());
@@ -7545,6 +7667,56 @@ public class ContactsProvider2 extends AbstractContactsProvider
         } else {
             qb.appendWhere("1");
         }
+    }
+
+    private long[] getAccountIdWithoutSim(Uri uri) {
+        final String accountType = getQueryParameter(uri, RawContacts.ACCOUNT_TYPE);
+        final String accountName = getQueryParameter(uri, RawContacts.ACCOUNT_NAME);
+        Cursor c = null;
+        SQLiteDatabase db = mContactsHelper.getWritableDatabase();
+        long[] accountId = null;
+        try {
+            if (null != accountType) {
+                c = db.query(Tables.ACCOUNTS,
+                        new String[] { AccountsColumns._ID },
+                        AccountsColumns.ACCOUNT_TYPE + "=?",
+                        new String[] { String.valueOf(accountType) }, null,
+                        null, null);
+            } else if (!TextUtils.isEmpty(accountName)) {
+                String[] names = accountName.split(",");
+                int nameCount = names.length;
+                String where = AccountsColumns.ACCOUNT_NAME + "=?";
+                StringBuilder selection = new StringBuilder();
+                String[] selectionArgs = new String[nameCount];
+                for (int i = 0; i < nameCount; i++) {
+                    selection.append(where);
+                    if (i != nameCount - 1) {
+                        selection.append(" OR ");
+                    }
+                    selectionArgs[i] = names[i];
+                }
+                c = db.query(Tables.ACCOUNTS,
+                        new String[] { AccountsColumns._ID },
+                        selection.toString(),
+                        selectionArgs, null,
+                        null, null);
+            }
+
+            if (c != null) {
+                accountId = new long[c.getCount()];
+
+                for (int i = 0; i < c.getCount(); i++) {
+                    if (c.moveToNext()) {
+                        accountId[c.getPosition()] = c.getInt(0);
+                    }
+                }
+            }
+        } finally {
+            if (c != null) {
+                c.close();
+            }
+        }
+        return accountId;
     }
 
     private AccountWithDataSet getAccountWithDataSetFromUri(Uri uri) {
