@@ -19,12 +19,14 @@ package com.android.providers.contacts;
 import android.content.ContentValues;
 import android.content.Context;
 import android.provider.CallLog.Calls;
+import android.net.Uri;
+import android.os.Bundle;
+import android.text.TextUtils;
 
 import com.android.i18n.phonenumbers.NumberParseException;
 import com.android.i18n.phonenumbers.PhoneNumberUtil;
 import com.android.i18n.phonenumbers.Phonenumber.PhoneNumber;
 import com.android.i18n.phonenumbers.geocoding.PhoneNumberOfflineGeocoder;
-
 import com.google.android.collect.Sets;
 
 import java.util.Locale;
@@ -106,6 +108,19 @@ import java.util.Set;
 
     @Override
     public String getGeocodedLocationFor(String number, String countryIso) {
+        if (!TextUtils.isEmpty(number)) {
+            Uri CONTENT_URI = Uri.parse("content://geocoded_location/location");
+            String METHOD_QUERY = "getLocation";
+            String RESULT_ADDRESS = "location";
+            if (mContext.getContentResolver().acquireProvider(CONTENT_URI) != null) {
+                Bundle result = mContext.getContentResolver().call(CONTENT_URI, METHOD_QUERY,
+                        number,
+                        null);
+                if (result != null && result.getString(RESULT_ADDRESS) != null) {
+                    return result.getString(RESULT_ADDRESS);
+                }
+            }
+        }
         PhoneNumber structuredPhoneNumber = parsePhoneNumber(number, countryIso);
         mLocale = mContext.getResources().getConfiguration().locale;
         if (structuredPhoneNumber != null) {
