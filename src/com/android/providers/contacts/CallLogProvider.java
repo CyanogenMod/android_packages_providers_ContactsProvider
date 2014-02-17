@@ -91,6 +91,8 @@ public class CallLogProvider extends ContentProvider {
 
         // To match the multisim, add the subscription for the call log to mark the call log state.
         sCallsProjectionMap.put(Calls.SUBSCRIPTION, Calls.SUBSCRIPTION);
+
+        sCallsProjectionMap.put(Calls.DURATION_TYPE, Calls.DURATION_TYPE);
     }
 
     private ContactsDatabaseHelper mDbHelper;
