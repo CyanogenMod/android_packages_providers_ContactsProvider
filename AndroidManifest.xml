@@ -62,7 +62,8 @@
         </provider>
 
         <provider android:name="LocalGroupsProvider"
-            android:authorities="com.android.contacts.groups"/>
+            android:authorities="com.android.contacts.groups"
+            android:exported="true"/>
 
         <!-- Handles database upgrades after OTAs, then disables itself -->
         <receiver android:name="ContactsUpgradeReceiver">
