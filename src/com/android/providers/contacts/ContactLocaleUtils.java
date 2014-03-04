@@ -31,6 +31,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.StringTokenizer;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -169,7 +170,71 @@ public class ContactLocaleUtils {
 
         @SuppressWarnings("unused")
         public Iterator<String> getNameLookupKeys(String name, int nameStyle) {
-            return null;
+            return getLatinNameLookupKeys(name);
+        }
+
+        /**
+         * Get name's look-up-keys for locale like Latin (including mixed type)
+         */
+        private Iterator<String> getLatinNameLookupKeys(String name) {
+
+            if (name == null || name.isEmpty())
+                return null;
+
+            String normalizedName = insertWhitespaceBetweenDiffTypes(name);
+            HashSet<String> keys = new HashSet<String>();
+
+            StringTokenizer st = new StringTokenizer(normalizedName, " ");
+            ArrayList<String> tokens = new ArrayList<String>();
+            while (st.hasMoreTokens())
+                tokens.add(st.nextToken());
+
+            final int tokenCount = tokens.size();
+            final StringBuilder keyInitial = new StringBuilder();
+            final StringBuilder keyOriginal = new StringBuilder();
+
+            for (int i = tokenCount - 1; i >= 0; i--) {
+                final String token = tokens.get(i);
+                keyOriginal.insert(0, token);
+                keyInitial.insert(0, token.charAt(0));
+                keys.add(keyOriginal.toString());
+                keys.add(keyInitial.toString());
+            }
+
+            return keys.iterator();
+        }
+
+        private String insertWhitespaceBetweenDiffTypes(String name) {
+            StringBuilder builder = new StringBuilder();
+            UnicodeBlock curUniType = null;
+            int length = name.length();
+            int offset = 0;
+            while (offset < length) {
+                int codePoint = Character.codePointAt(name, offset);
+                if (Character.isLetter(codePoint)) {
+                    UnicodeBlock unicodeType = UnicodeBlock.of(codePoint);
+                    if ((curUniType != null) &&
+                            !(isLatinUnicodeBlock(curUniType) &&
+                            isLatinUnicodeBlock(unicodeType)) &&
+                            (curUniType != unicodeType)) {
+                        builder.append(" ");
+                    }
+                    curUniType = unicodeType;
+                }
+
+                builder.append(Character.toChars(codePoint));
+                offset += Character.charCount(codePoint);
+            }
+
+            return builder.toString();
+        }
+
+        private boolean isLatinUnicodeBlock(UnicodeBlock unicodeBlock) {
+            return unicodeBlock == UnicodeBlock.BASIC_LATIN ||
+                    unicodeBlock == UnicodeBlock.LATIN_1_SUPPLEMENT ||
+                    unicodeBlock == UnicodeBlock.LATIN_EXTENDED_A ||
+                    unicodeBlock == UnicodeBlock.LATIN_EXTENDED_B ||
+                    unicodeBlock == UnicodeBlock.LATIN_EXTENDED_ADDITIONAL;
         }
 
         public ArrayList<String> getLabels() {
