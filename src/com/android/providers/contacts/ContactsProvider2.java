@@ -7271,7 +7271,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
                 sb.append("=" + Tables.PHONE_LOOKUP + "." + PhoneLookupColumns.DATA_ID);
                 sb.append(" WHERE  " + Tables.SEARCH_INDEX + "." + SearchIndexColumns.CONTACT_ID);
                 sb.append("=" + RawContacts.CONTACT_ID);
-                sb.append(" AND " + PhoneLookupColumns.NORMALIZED_NUMBER + " LIKE '%");
+                sb.append(" AND (" + PhoneLookupColumns.NORMALIZED_NUMBER + " LIKE '%");
                 sb.append(phoneNumber);
                 sb.append("%'");
                 if (!TextUtils.isEmpty(numberE164)) {
@@ -7279,7 +7279,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
                     sb.append(numberE164);
                     sb.append("%'");
                 }
-                sb.append(")");
+                sb.append("))");
                 if (! deferSnippeting) {
                     sb.append("||");
                     DatabaseUtils.appendEscapedSQLString(sb, endMatch);
@@ -7321,8 +7321,10 @@ public class ContactsProvider2 extends AbstractContactsProvider
 
         sb.append(" FROM " + Tables.SEARCH_INDEX);
         sb.append(" WHERE ");
-        if (isPhoneNumber) {
-            sb.append(SearchSnippetColumns.SNIPPET + " LIKE'%" + phoneNumber
+        if (snippetNeeded && isPhoneNumber) {
+            // only support fuzzy search when there is snippet column and
+            // the filter is phone number!
+            sb.append(SearchSnippetColumns.SNIPPET + " LIKE '%" + phoneNumber
                     + "%' AND " + SNIPPET_CONTACT_ID + " IN "
                     + Tables.DEFAULT_DIRECTORY + ")");
         } else {
@@ -7338,6 +7340,23 @@ public class ContactsProvider2 extends AbstractContactsProvider
                 sb.append("\"");
                 sb.append(sanitizedEmailAddress);
                 sb.append("*\"");
+            } else if (isPhoneNumber) {
+                // normalized version of the phone number (phoneNumber can only have + and digits)
+                final String phoneNumberCriteria = " OR tokens:" + phoneNumber + "*";
+
+                // international version of this number (numberE164 can only have + and digits)
+                final String numberE164Criteria =
+                        (numberE164 != null && !TextUtils.equals(numberE164, phoneNumber))
+                        ? " OR tokens:" + numberE164 + "*"
+                        : "";
+
+                // combine all criteria
+                final String commonCriteria =
+                        phoneNumberCriteria + numberE164Criteria;
+
+                // search in content
+                sb.append(SearchIndexManager.getFtsMatchQuery(filter,
+                        FtsQueryBuilder.getDigitsQueryBuilder(commonCriteria)));
             } else {
                 // general case: not a phone number, not an email-address
                 sb.append(SearchIndexManager.getFtsMatchQuery(filter,
