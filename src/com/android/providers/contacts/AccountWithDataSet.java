@@ -25,7 +25,8 @@ import com.google.common.base.Objects;
  * Account information that includes the data set, if any.
  */
 public class AccountWithDataSet {
-    public static final AccountWithDataSet LOCAL = new AccountWithDataSet(null, null, null);
+    public static final AccountWithDataSet LOCAL = new AccountWithDataSet(
+            "PHONE", "com.android.localphone", null);
 
     private static final String LOCAL_ACCOUNT = "phone-local";
 
