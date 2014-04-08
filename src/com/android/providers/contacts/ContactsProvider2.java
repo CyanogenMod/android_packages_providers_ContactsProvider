@@ -7274,11 +7274,6 @@ public class ContactsProvider2 extends AbstractContactsProvider
                 sb.append(" AND (" + PhoneLookupColumns.NORMALIZED_NUMBER + " LIKE '%");
                 sb.append(phoneNumber);
                 sb.append("%'");
-                if (!TextUtils.isEmpty(numberE164)) {
-                    sb.append(" OR " + PhoneLookupColumns.NORMALIZED_NUMBER + " LIKE '%");
-                    sb.append(numberE164);
-                    sb.append("%'");
-                }
                 sb.append("))");
                 if (! deferSnippeting) {
                     sb.append("||");
@@ -7321,12 +7316,68 @@ public class ContactsProvider2 extends AbstractContactsProvider
 
         sb.append(" FROM " + Tables.SEARCH_INDEX);
         sb.append(" WHERE ");
-        if (snippetNeeded && isPhoneNumber) {
+        if (isPhoneNumber) {
+                sb.append(Tables.SEARCH_INDEX + " MATCH '");
+                // normalized version of the phone number (phoneNumber can only have + and digits)
+                final String phoneNumberCriteria = " OR tokens:" + phoneNumber + "*";
+
+                // international version of this number (numberE164 can only have + and digits)
+                final String numberE164Criteria =
+                        (numberE164 != null && !TextUtils.equals(numberE164, phoneNumber))
+                        ? " OR tokens:" + numberE164 + "*"
+                        : "";
+
+                // combine all criteria
+                final String commonCriteria =
+                        phoneNumberCriteria + numberE164Criteria;
+
+                // search in content
+                sb.append(SearchIndexManager.getFtsMatchQuery(filter,
+                        FtsQueryBuilder.getDigitsQueryBuilder(commonCriteria)));
+                sb.append("' AND " + SNIPPET_CONTACT_ID + " IN " + Tables.DEFAULT_DIRECTORY);
+            if (snippetNeeded) {
             // only support fuzzy search when there is snippet column and
             // the filter is phone number!
-            sb.append(SearchSnippetColumns.SNIPPET + " LIKE '%" + phoneNumber
-                    + "%' AND " + SNIPPET_CONTACT_ID + " IN "
-                    + Tables.DEFAULT_DIRECTORY + ")");
+                sb.append(" UNION SELECT " + SearchIndexColumns.CONTACT_ID + " AS " +
+                        SNIPPET_CONTACT_ID);
+                sb.append(", ");
+                sb.append("ifnull(");
+                if (!deferSnippeting) {
+                    // Add the snippet marker only when we're really creating snippet.
+                    DatabaseUtils.appendEscapedSQLString(sb, startMatch);
+                    sb.append("||");
+                }
+                sb.append("(SELECT MIN(" + PhoneLookupColumns.NORMALIZED_NUMBER + ")");
+                sb.append(" FROM " +
+                        Tables.DATA_JOIN_RAW_CONTACTS + " JOIN " + Tables.PHONE_LOOKUP);
+                sb.append(" ON " + DataColumns.CONCRETE_ID);
+                sb.append("=" + Tables.PHONE_LOOKUP + "." + PhoneLookupColumns.DATA_ID);
+                sb.append(" WHERE  " + Tables.SEARCH_INDEX + "." + SearchIndexColumns.CONTACT_ID);
+                sb.append("=" + RawContacts.CONTACT_ID);
+                sb.append(" AND (" + PhoneLookupColumns.NORMALIZED_NUMBER + " LIKE '%");
+                sb.append(phoneNumber);
+                sb.append("%'");
+                sb.append("))");
+                if (!deferSnippeting) {
+                    sb.append("||");
+                    DatabaseUtils.appendEscapedSQLString(sb, endMatch);
+                }
+                sb.append(",");
+
+                if (deferSnippeting) {
+                    sb.append(SearchIndexColumns.CONTENT);
+                } else {
+                    appendSnippetFunction(sb, startMatch, endMatch, ellipsis, maxTokens);
+                }
+                sb.append(")");
+                sb.append(" AS " + SearchSnippetColumns.SNIPPET);
+                sb.append(" FROM " + Tables.SEARCH_INDEX);
+                sb.append(" WHERE " + SearchSnippetColumns.SNIPPET + " LIKE '%" +
+                        phoneNumber + "%'");
+                sb.append(" AND " + SNIPPET_CONTACT_ID + " IN " + Tables.DEFAULT_DIRECTORY + ")");
+            } else {
+                sb.append(")");
+            }
         } else {
             sb.append(Tables.SEARCH_INDEX + " MATCH '");
             if (isEmailAddress) {
