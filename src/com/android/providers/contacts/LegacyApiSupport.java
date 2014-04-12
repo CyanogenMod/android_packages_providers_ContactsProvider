@@ -1954,8 +1954,9 @@ public class LegacyApiSupport {
             sb.append(" AND " + Groups.ACCOUNT_TYPE + "=");
             DatabaseUtils.appendEscapedSQLString(sb, mAccount.type);
         } else {
-            sb.append(Groups.ACCOUNT_NAME + " IS NULL" +
-                    " AND " + Groups.ACCOUNT_TYPE + " IS NULL");
+            sb.append(Groups.ACCOUNT_NAME + " = '" + AccountWithDataSet.LOCAL.getAccountName() +
+                    "' AND " + Groups.ACCOUNT_TYPE + " = '" +
+                    AccountWithDataSet.LOCAL.getAccountType() + "'");
         }
     }
 
