@@ -25,8 +25,10 @@ import com.google.common.base.Objects;
  * Account information that includes the data set, if any.
  */
 public class AccountWithDataSet {
+    public static final String PHONE_NAME = "PHONE";
+    public static final String ACCOUNT_TYPE_PHONE = "com.android.localphone";
     public static final AccountWithDataSet LOCAL = new AccountWithDataSet(
-            "PHONE", "com.android.localphone", null);
+            PHONE_NAME, ACCOUNT_TYPE_PHONE, null);
 
     private final String mAccountName;
     private final String mAccountType;
@@ -63,7 +65,7 @@ public class AccountWithDataSet {
     }
 
     public boolean isLocalAccount() {
-        return (mAccountName == null) && (mAccountType == null);
+        return (PHONE_NAME.equals(mAccountName)) && (ACCOUNT_TYPE_PHONE.equals(mAccountType));
     }
 
     @Override

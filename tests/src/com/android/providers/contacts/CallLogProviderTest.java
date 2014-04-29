@@ -63,7 +63,7 @@ public class CallLogProviderTest extends BaseContactsProvider2Test {
             Voicemails.SOURCE_DATA,
             Voicemails.STATE};
     /** Total number of columns exposed by call_log provider. */
-    private static final int NUM_CALLLOG_FIELDS = 19;
+    private static final int NUM_CALLLOG_FIELDS = 21;
 
     @Override
     protected Class<? extends ContentProvider> getProviderClass() {
@@ -145,13 +145,6 @@ public class CallLogProviderTest extends BaseContactsProvider2Test {
 
     public void testDelete() {
         Uri uri = insertCallRecord();
-        try {
-            mResolver.delete(uri, null, null);
-            fail();
-        } catch (UnsupportedOperationException ex) {
-            // Expected
-        }
-
         int count = mResolver.delete(Calls.CONTENT_URI, Calls._ID + "="
                 + ContentUris.parseId(uri), null);
         assertEquals(1, count);
@@ -294,6 +287,9 @@ public class CallLogProviderTest extends BaseContactsProvider2Test {
         Cursor cursor = mResolver.query(Calls.CONTENT_URI, null, null, null, null);
         List<String> columnNames = Arrays.asList(cursor.getColumnNames());
         assertEquals(NUM_CALLLOG_FIELDS, columnNames.size());
+        if (cursor != null) {
+            cursor.close();
+        }
         // None of the voicemail provider specific columns should be present.
         for (String voicemailColumn : VOICEMAIL_PROVIDER_SPECIFIC_COLUMNS) {
             assertFalse("Unexpected column: '" + voicemailColumn + "' returned.",

@@ -187,7 +187,11 @@ public class ContactsActor {
         };
 
         mMockAccountManager = new MockAccountManager(mProviderContext);
-        provider = addProvider(providerClass, authority);
+        try {
+            provider = addProvider(providerClass, authority);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     public void addAuthority(String authority) {

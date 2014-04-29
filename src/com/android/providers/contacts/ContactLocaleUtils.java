@@ -544,7 +544,9 @@ public class ContactLocaleUtils {
                 !KOREAN_LANGUAGE.equals(mLanguage)) {
             return JapaneseContactUtils.getRomajiNameLookupKeys(name);
         }
-        if (nameStyle == FullNameStyle.CHINESE) {
+        if (nameStyle == FullNameStyle.CHINESE
+                && !JAPANESE_LANGUAGE.equals(mLanguage)
+                && !KOREAN_LANGUAGE.equals(mLanguage)) {
             return mUtilsChinese.getNameLookupKeys(name, nameStyle);
         }
         return mUtils.getNameLookupKeys(name, nameStyle);

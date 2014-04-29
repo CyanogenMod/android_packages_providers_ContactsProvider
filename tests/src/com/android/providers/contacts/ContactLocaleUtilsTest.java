@@ -143,7 +143,6 @@ public class ContactLocaleUtilsTest extends AndroidTestCase {
         assertEquals("D", getLabel(CHINESE_LATIN_MIX_NAME_1));
         assertEquals("B", getLabel("Bob Smith"));
 
-        assertNull(getNameLookupKeys(LATIN_NAME, FullNameStyle.UNDEFINED));
         verifyLabels(getLabels(), LABELS_EN_US);
     }
 

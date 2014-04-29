@@ -48,7 +48,7 @@ public class ContactLookupKeyTest extends BaseContactsProvider2Test {
 
         // Normalized display name
         String normalizedName = NameNormalizer.normalize("johndoe");
-        String expectedLookupKey = "0r" + rawContactId1 + "-" + normalizedName + ".0r"
+        String expectedLookupKey = "3585r" + rawContactId1 + "-" + normalizedName + ".3585r"
                 + rawContactId2 + "-" + normalizedName;
 
         long contactId = queryContactId(rawContactId1);
@@ -84,7 +84,7 @@ public class ContactLookupKeyTest extends BaseContactsProvider2Test {
                 AggregationExceptions.TYPE_KEEP_TOGETHER, rawContactId1, rawContactId3);
 
         // Two source ids, of them escaped
-        String expectedLookupKey = "0i123.0e4..5..6.0ihttp%3A%2F%2Ffoo%3Fbar";
+        String expectedLookupKey = "3585i123.3585e4..5..6.3585ihttp%3A%2F%2Ffoo%3Fbar";
 
         long contactId = queryContactId(rawContactId1);
         assertStoredValue(ContentUris.withAppendedId(Contacts.CONTENT_URI, contactId),
@@ -139,7 +139,7 @@ public class ContactLookupKeyTest extends BaseContactsProvider2Test {
         setAggregationException(
                 AggregationExceptions.TYPE_KEEP_TOGETHER, rawContactId1, rawContactId3);
 
-        String lookupKey = "0i1.0i2.0i3";
+        String lookupKey = "3585i1.3585i2.3585i3";
 
         long contactId = queryContactId(rawContactId1);
         assertStoredValue(ContentUris.withAppendedId(Contacts.CONTENT_URI, contactId),
@@ -156,10 +156,10 @@ public class ContactLookupKeyTest extends BaseContactsProvider2Test {
         long largerContactId = queryContactId(rawContactId1);
         assertStoredValue(
                 ContentUris.withAppendedId(Contacts.CONTENT_URI, largerContactId),
-                Contacts.LOOKUP_KEY, "0i1.0i2");
+                Contacts.LOOKUP_KEY, "3585i1.3585i2");
         assertStoredValue(
                 ContentUris.withAppendedId(Contacts.CONTENT_URI, queryContactId(rawContactId3)),
-                Contacts.LOOKUP_KEY, "0i3");
+                Contacts.LOOKUP_KEY, "3585i3");
 
         Uri lookupUri = Uri.withAppendedPath(Contacts.CONTENT_LOOKUP_URI, lookupKey);
         assertStoredValue(lookupUri, Contacts._ID, largerContactId);
@@ -170,14 +170,14 @@ public class ContactLookupKeyTest extends BaseContactsProvider2Test {
         storeValue(RawContacts.CONTENT_URI, rawContactId1, RawContacts.SOURCE_ID, "1");
 
         long contactId = queryContactId(rawContactId1);
-        String lookupUri = "content://com.android.contacts/contacts/lookup/0i1/" + contactId;
+        String lookupUri = "content://com.android.contacts/contacts/lookup/3585i1/" + contactId;
 
         Uri contentUri = ContentUris.withAppendedId(Contacts.CONTENT_URI, contactId);
         assertEquals(lookupUri,
                 Contacts.getLookupUri(mResolver, contentUri).toString());
 
         Uri staleLookupUri = ContentUris.withAppendedId(
-                Uri.withAppendedPath(Contacts.CONTENT_LOOKUP_URI, "0i1"),
+                Uri.withAppendedPath(Contacts.CONTENT_LOOKUP_URI, "3585i1"),
                 contactId+2);
         assertEquals(lookupUri,
                 Contacts.getLookupUri(mResolver, staleLookupUri).toString());
