@@ -15,8 +15,24 @@
      limitations under the License.
 -->
 <resources xmlns:android="http://schemas.android.com/apk/res/android" xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+  <string name="sharedUserLabel">نەرمەواڵاکانی ناوەکی ئەندرۆید</string>
+  <string name="app_label">بیرگەی ناوەکان</string>
   <string name="provider_label">ناوەکان</string>
+  <string name="upgrade_msg">نوێکردنەوەی بنکەدراوەی ناوەکان.</string>
+  <string name="upgrade_out_of_memory_notification_ticker">نوێکاری ناوەکان پێویستی بە بیرگەی زۆرترە.</string>
+  <string name="upgrade_out_of_memory_notification_title">تازەکردنەوەی بیرگە بۆ ناوەکان</string>
+  <string name="upgrade_out_of_memory_notification_text">دەست لێدە بۆ تەواوکردنی نوێکارییەکە.</string>
   <string name="default_directory">ناوەکان</string>
   <string name="local_invisible_directory">دیکە</string>
+  <string name="read_write_all_voicemail_label">دەست گەیاندن بۆ هەموو دەنگنامەکان</string>
+  <string name="read_write_all_voicemail_description">ڕێگە بە نەرمەواڵاکە بدە بۆ هێشتنەوە و هێنانەوەی
+        هەموو ئەو دەنگنامانەی کە ئەم ئامێرە دەستی پێ ئەگات.</string>
+  <string name="voicemail_from_column">"دەنگنامە لەلایەن "</string>
+  <string name="debug_dump_title">کۆپی کردنی بنکەدراوەی ناوەکان</string>
+  <string name="debug_dump_database_message">تۆ بە تەمای 1) کۆپی گرتنەوە لە بنکەدراوەکەتی کە هەموو ناوەکان بە تۆماری پەیوەندی و زانیارییەکانییەوە لەخۆ ئەگرێت، بۆ ناو بیرگەی ناوەکی  , هەروەها 2) ئیمێڵ کردنیشی.  لەیادت بێ  کۆپییەکە بسڕیتەوە هەر کە بە سەرکەوتووانە کۆپیت کردەوە بۆ ئامێرەکەت یان ئیمێڵەکە وەرگیردرا.</string>
+  <string name="debug_dump_delete_button">سڕینەوە ئێستا</string>
   <string name="debug_dump_start_button">دەستپێکردن</string>
+  <string name="debug_dump_email_sender_picker">بەرنامەیەک هەڵبژێرە بۆ ناردنی فایلەکەت</string>
+  <string name="debug_dump_email_subject">بنکەدراوەی ناوەکان پێوەلکێندرا</string>
+  <string name="debug_dump_email_body">پێوەلکێندراوەکە بنکەدراوەی ناوەکانمە و لەگەڵ هەموو زانیاری ناوەکانم. بە وریایی بیهێڵەرەوە.</string>
 </resources>

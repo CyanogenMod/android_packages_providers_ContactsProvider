@@ -16,4 +16,16 @@
 -->
 <resources xmlns:android="http://schemas.android.com/apk/res/android" xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
   <string name="sharedUserLabel">Kär-Appe vum Android</string>
+  <string name="app_label">Späicher fir Kontakter</string>
+  <string name="provider_label">Kontakter</string>
+  <string name="upgrade_msg">Kontaktdatebank aktualiséieren.</string>
+  <string name="upgrade_out_of_memory_notification_ticker">D\'Aktualiséierung vun de Kontakter brauch méi Späicher.</string>
+  <string name="upgrade_out_of_memory_notification_title">Späicher fir Kontakter gëtt aktualiséiert</string>
+  <string name="upgrade_out_of_memory_notification_text">Drécke fir d\'Aktualiséierung ofzeschléissen.</string>
+  <string name="default_directory">Kontakter</string>
+  <string name="local_invisible_directory">Aner</string>
+  <string name="voicemail_from_column">"Sproochmessage vum "</string>
+  <string name="debug_dump_title">Kontaktdatebank kopéieren</string>
+  <string name="debug_dump_delete_button">Elo läschen</string>
+  <string name="debug_dump_start_button">Start</string>
 </resources>
