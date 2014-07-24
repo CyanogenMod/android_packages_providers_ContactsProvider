@@ -335,9 +335,8 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
                 "(SELECT " + AccountsColumns._ID +
                 " FROM " + Tables.ACCOUNTS +
                 " WHERE " +
-                    AccountsColumns.ACCOUNT_NAME + " IS NULL AND " +
-                    AccountsColumns.ACCOUNT_TYPE + " IS NULL AND " +
-                    AccountsColumns.DATA_SET + " IS NULL)";
+                AccountsColumns.ACCOUNT_TYPE + "='" +
+                AccountWithDataSet.ACCOUNT_TYPE_PHONE + "')";
 
         final String RAW_CONTACT_IS_LOCAL = RawContactsColumns.CONCRETE_ACCOUNT_ID
                 + "=" + LOCAL_ACCOUNT_ID;
@@ -351,8 +350,6 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
                 "SELECT " +
                     "MAX((SELECT (CASE WHEN " +
                         "(CASE" +
-                            " WHEN " + RAW_CONTACT_IS_LOCAL +
-                            " THEN 1 " +
                             " WHEN " + ZERO_GROUP_MEMBERSHIPS +
                             " THEN " + Settings.UNGROUPED_VISIBLE +
                             " ELSE MAX(" + Groups.GROUP_VISIBLE + ")" +
@@ -2022,13 +2019,18 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
         String contactsSelect = "SELECT "
                 + ContactsColumns.CONCRETE_ID + " AS " + Contacts._ID + ","
                 + contactsColumns + ", "
+                + AccountsColumns.ACCOUNT_NAME + ", "
+                + AccountsColumns.ACCOUNT_TYPE + ", "
                 + buildDisplayPhotoUriAlias(ContactsColumns.CONCRETE_ID, Contacts.PHOTO_URI) + ", "
                 + buildThumbnailPhotoUriAlias(ContactsColumns.CONCRETE_ID,
                         Contacts.PHOTO_THUMBNAIL_URI) + ", "
                 + dbForProfile() + " AS " + Contacts.IS_USER_PROFILE
                 + " FROM " + Tables.CONTACTS
                 + " JOIN " + Tables.RAW_CONTACTS + " AS name_raw_contact ON("
-                +   Contacts.NAME_RAW_CONTACT_ID + "=name_raw_contact." + RawContacts._ID + ")";
+                +   Contacts.NAME_RAW_CONTACT_ID + "=name_raw_contact." + RawContacts._ID + ")"
+                + " JOIN " + Tables.ACCOUNTS + " AS name_accounts ON("
+                + "name_raw_contact." + RawContactsColumns.ACCOUNT_ID + "=name_accounts."
+                + AccountsColumns._ID + ")";
 
         db.execSQL("CREATE VIEW " + Views.CONTACTS + " AS " + contactsSelect);
 
