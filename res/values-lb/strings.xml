@@ -15,7 +15,6 @@
      limitations under the License.
 -->
 <resources xmlns:android="http://schemas.android.com/apk/res/android" xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
-  <string name="sharedUserLabel">Kär-Appe vum Android</string>
   <string name="app_label">Späicher fir Kontakter</string>
   <string name="provider_label">Kontakter</string>
   <string name="upgrade_msg">Kontaktdatebank aktualiséieren.</string>
@@ -26,6 +25,8 @@
   <string name="local_invisible_directory">Aner</string>
   <string name="voicemail_from_column">"Sproochmessage vum "</string>
   <string name="debug_dump_title">Kontaktdatebank kopéieren</string>
+  <string name="debug_dump_database_message">Du bass am Gaang 1) eng Kopie vun denger Datebank an den interne Späicher ze maachen an där all d\'Informatioune vun de Kontakter an den Historique vun allen Telefonsgespréicher stinn, an 2) se ze mailen. Denk drun d\'Kopie ze läsche soubal s du s\'erfollegräich vum Apparat kopéiert hues oder d\'E-Mail ukomm ass.</string>
   <string name="debug_dump_delete_button">Elo läschen</string>
   <string name="debug_dump_start_button">Start</string>
+  <string name="debug_dump_email_body">Ugehaangen ass meng Kontaktdatebank mat all menge Kontaktinformatiounen. Mat Virsiicht behandelen.</string>
 </resources>
