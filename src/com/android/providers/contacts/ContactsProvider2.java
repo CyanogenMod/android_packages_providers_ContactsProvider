@@ -302,6 +302,10 @@ public class ContactsProvider2 extends AbstractContactsProvider
             + Contacts.DISPLAY_NAME + " COLLATE LOCALIZED ASC";
     private static String WITHOUT_SIM_FLAG  = "no_sim";
 
+    private boolean isWhereAppended = false;
+
+    public static final String ADD_GROUP_MEMBERS = "add_group_members";
+
     private static final int CONTACTS = 1000;
     private static final int CONTACTS_ID = 1001;
     private static final int CONTACTS_LOOKUP = 1002;
@@ -532,6 +536,22 @@ public class ContactsProvider2 extends AbstractContactsProvider
                                     + "(SELECT " + Tables.GROUPS + "." + Groups._ID
                                     + " FROM " + Tables.GROUPS
                                     + " WHERE " + Groups.TITLE + "=?)))";
+
+    private static final String CONTACTS_IN_GROUP_ID_SELECT =
+            Contacts._ID + " IN "
+                    + "(SELECT DISTINCT "
+                    + Data.CONTACT_ID
+                    + " FROM " + Views.DATA
+                    + " WHERE " + Data.MIMETYPE + " = '" + GroupMembership.CONTENT_ITEM_TYPE
+                    + "' AND " + Data.DATA1 + " = ?)";
+
+    private static final String CONTACTS_NOT_IN_GROUP_ID_SELECT =
+            Contacts._ID + " NOT IN "
+                    + "(SELECT DISTINCT "
+                    + Data.CONTACT_ID
+                    + " FROM " + Views.DATA
+                    + " WHERE " + Data.MIMETYPE + " = '" + GroupMembership.CONTENT_ITEM_TYPE
+                    + "' AND " + Data.DATA1 + " = ?)";
 
     /** Sql for updating DIRTY flag on multiple raw contacts */
     private static final String UPDATE_RAW_CONTACT_SET_DIRTY_SQL =
@@ -1207,6 +1227,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
         matcher.addURI(ContactsContract.AUTHORITY, "contacts/strequent/", CONTACTS_STREQUENT);
         matcher.addURI(ContactsContract.AUTHORITY, "contacts/strequent/filter/*",
                 CONTACTS_STREQUENT_FILTER);
+        matcher.addURI(ContactsContract.AUTHORITY, "contacts/group", CONTACTS_GROUP);
         matcher.addURI(ContactsContract.AUTHORITY, "contacts/group/*", CONTACTS_GROUP);
         matcher.addURI(ContactsContract.AUTHORITY, "contacts/frequent", CONTACTS_FREQUENT);
         matcher.addURI(ContactsContract.AUTHORITY, "contacts/delete_usage", CONTACTS_DELETE_USAGE);
@@ -5357,13 +5378,43 @@ public class ContactsProvider2 extends AbstractContactsProvider
                     filterParam = uri.getLastPathSegment();
                 }
 
-                // If the query consists of a single word, we can do snippetizing after-the-fact for
-                // a performance boost.  Otherwise, we can't defer.
+                // If the query consists of a single word, we can do snippetizing
+                // after-the-fact for a performance boost. Otherwise, we can't defer.
                 snippetDeferred = isSingleWordQuery(filterParam)
                     && deferredSnipRequested && snippetNeeded(projection);
                 setTablesAndProjectionMapForContactsWithSnippet(
                         qb, uri, projection, filterParam, directoryId,
                         snippetDeferred);
+                long groupId = -1;
+                try {
+                    groupId = Long.parseLong(uri.getQueryParameter(Groups._ID));
+                } catch (Exception exception) {
+                    groupId = -1;
+                }
+                if (groupId != -1) {
+                    StringBuilder groupBuilder = new StringBuilder();
+                    if (uri.getBooleanQueryParameter(ADD_GROUP_MEMBERS, false)) {
+                        // filter all the contacts that are NOT assigned to the
+                        // group whose id is 'groupId'
+                        groupBuilder.append(Contacts._ID + " NOT IN (" + " SELECT DISTINCT "
+                                + Data.CONTACT_ID
+                                + " FROM " + Views.DATA + " WHERE " + Data.MIMETYPE + " = '"
+                                + GroupMembership.CONTENT_ITEM_TYPE + "' AND " + Data.DATA1
+                                + " = " + groupId + ")");
+                    } else {
+                        // filter all the contacts that are assigned to the
+                        // group whose id is 'groupId'
+                        groupBuilder.append(Contacts._ID + " IN (" + " SELECT DISTINCT "
+                                + Data.CONTACT_ID
+                                + " FROM " + Views.DATA + " WHERE " + Data.MIMETYPE + " = '"
+                                + GroupMembership.CONTENT_ITEM_TYPE + "' AND " + Data.DATA1
+                                + " = " + groupId + ")");
+                    }
+                    if (isWhereAppended) {
+                        qb.appendWhere(" AND ");
+                    }
+                    qb.appendWhere(groupBuilder.toString());
+                }
                 break;
             }
 
@@ -5545,7 +5596,23 @@ public class ContactsProvider2 extends AbstractContactsProvider
 
             case CONTACTS_GROUP: {
                 setTablesAndProjectionMapForContacts(qb, projection);
-                if (uri.getPathSegments().size() > 2) {
+                appendLocalDirectoryAndAccountSelectionIfNeeded(qb, directoryId, uri);
+                long groupId = -1;
+                try {
+                    groupId = Long.parseLong(uri.getQueryParameter(Groups._ID));
+                } catch (Exception exception) {
+                    groupId = -1;
+                }
+                if (groupId != -1) {
+                    qb.appendWhere(" AND ");
+                    if (uri.getBooleanQueryParameter(ADD_GROUP_MEMBERS, false)) {
+                        qb.appendWhere(CONTACTS_NOT_IN_GROUP_ID_SELECT);
+                    } else {
+                        qb.appendWhere(CONTACTS_IN_GROUP_ID_SELECT);
+                    }
+                    selectionArgs = insertSelectionArg(selectionArgs, String.valueOf(groupId));
+                } else if (uri.getPathSegments().size() > 2) {
+                    qb.appendWhere(" AND ");
                     qb.appendWhere(CONTACTS_IN_GROUP_SELECT);
                     String groupMimeTypeId = String.valueOf(
                             mDbHelper.get().getMimeTypeId(GroupMembership.CONTENT_ITEM_TYPE));
@@ -7326,6 +7393,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
     private void setTablesAndProjectionMapForContactsWithSnippet(SQLiteQueryBuilder qb, Uri uri,
             String[] projection, String filter, long directoryId, boolean deferSnippeting) {
 
+        isWhereAppended = false;
         StringBuilder sb = new StringBuilder();
         sb.append(Views.CONTACTS);
 
@@ -7376,6 +7444,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
         if (!TextUtils.isEmpty(sbWhere.toString())) {
             if ("true".equals(withoutSim)) {
                 qb.appendWhere(sbWhere.toString());
+                isWhereAppended = true;
             } else {
                 sb.append(sbWhere.toString());
             }

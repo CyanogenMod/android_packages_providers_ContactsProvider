@@ -285,11 +285,11 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
          */
         public static final String GROUP_MEMBER_COUNT =
                 " LEFT OUTER JOIN (SELECT "
-                        + "data.data1 AS member_count_group_id, "
-                        + "COUNT(data.raw_contact_id) AS group_member_count "
-                    + "FROM data "
+                        + "view_data.data1 AS member_count_group_id, "
+                        + "COUNT(DISTINCT view_data.contact_id) AS group_member_count "
+                    + "FROM view_data "
                     + "WHERE "
-                        + "data.mimetype_id = (SELECT _id FROM mimetypes WHERE "
+                        + "view_data.mimetype_id = (SELECT _id FROM mimetypes WHERE "
                             + "mimetypes.mimetype = '" + GroupMembership.CONTENT_ITEM_TYPE + "')"
                     + "GROUP BY member_count_group_id) AS member_count_table" // End of inner query
                 + " ON (groups._id = member_count_table.member_count_group_id)";
@@ -1596,6 +1596,9 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
 
         // Add the legacy API support views, etc.
         LegacyApiSupport.createDatabase(db);
+
+        createPhoneAccount(db);
+        createDefaultGroups4PhoneAccount(db);
 
         if (mDatabaseOptimizationEnabled) {
             // This will create a sqlite_stat1 table that is used for query optimization
@@ -3478,12 +3481,42 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
         insertNameLookup(db);
         rebuildSortKeys(db);
         createContactsIndexes(db, rebuildSqliteStats);
+        rebuildDefaultGroupTitles(db, locales.getPrimaryLocale());
 
         FastScrollingIndexCache.getInstance(mContext).invalidate();
         // Update the ICU version used to generate the locale derived data
         // so we can tell when we need to rebuild with new ICU versions.
         setProperty(db, DbProperties.ICU_VERSION, ICU.getIcuVersion());
         setProperty(db, DbProperties.LOCALE, locales.toString());
+    }
+
+    /**
+     * change the default groups' title according to the locale
+     */
+    private void rebuildDefaultGroupTitles(SQLiteDatabase db, Locale locale) {
+        String[] PROJECTION = new String[] {Groups._ID, Groups.TITLE_RES};
+        Cursor cursor = db.query(Tables.GROUPS, PROJECTION, Groups.TITLE_RES + " IS NOT NULL ", null
+            ,null, null, Groups._ID);
+
+        if (cursor == null) {
+            return;
+        }
+
+        try {
+            long groupId = -1;
+            int titleRes = 0;
+            ContentValues values = new ContentValues();
+            while (cursor.moveToNext()) {
+                groupId = cursor.getLong(0);
+                titleRes = cursor.getInt(1);
+                values.clear();
+                values.put(Groups.TITLE, mContext.getResources().getString(titleRes));
+                db.update(Tables.GROUPS, values, Groups._ID + " = ?", new String[] {
+                    String.valueOf(groupId)});
+            }
+        } finally {
+            cursor.close();
+        }
     }
 
     /**
@@ -5988,5 +6021,55 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
                 " FROM " + Tables.SEARCH_INDEX +
                 " WHERE " + SearchIndexColumns.CONTACT_ID + "=CAST(? AS int)",
                 new String[] {String.valueOf(contactId)});
+    }
+
+    private void createDefaultGroups4PhoneAccount(SQLiteDatabase db) {
+        // 3 default groups
+        String[] title = new String[3];
+        int[] titleRes = new int[3];
+
+        title[0] = mContext.getResources().getString(R.string.group_title_co_workers);
+        titleRes[0] = R.string.group_title_co_workers;
+
+        title[1] = mContext.getResources().getString(R.string.group_title_family);
+        titleRes[1] = R.string.group_title_family;
+
+        title[2] = mContext.getResources().getString(R.string.group_title_friends);
+        titleRes[2] = R.string.group_title_friends;
+
+        for (int i = 0; i < title.length; i++) {
+            db.execSQL("INSERT INTO " + Tables.GROUPS + " (" +
+                GroupsColumns.ACCOUNT_ID + "," +
+                Groups.SOURCE_ID + "," +
+                Groups.VERSION + "," +
+                Groups.DIRTY + "," +
+                Groups.TITLE + "," +
+                Groups.TITLE_RES + "," +
+                Groups.NOTES + "," +
+                Groups.SYSTEM_ID + "," +
+                Groups.DELETED + "," +
+                Groups.GROUP_VISIBLE + "," +
+                Groups.SHOULD_SYNC + "," +
+                Groups.AUTO_ADD + "," +
+                Groups.FAVORITES + "," +
+                Groups.GROUP_IS_READ_ONLY + "," +
+                Groups.SYNC1 + ", " +
+                Groups.SYNC2 + ", " +
+                Groups.SYNC3 + ", " +
+                Groups.SYNC4 + ") " +
+                "VALUES (1,1,1,0,'"
+                    + title[i] + "'," + titleRes[i] +
+                    ",NULL,NULL,0,1,1,0,0,1,'','','','');"
+            );
+        }
+    }
+
+    public void createPhoneAccount(SQLiteDatabase db) {
+        String sql = "INSERT INTO " + Tables.ACCOUNTS
+            + "(" + AccountsColumns.ACCOUNT_NAME + ","
+            + AccountsColumns.ACCOUNT_TYPE + ") "
+            + "VALUES ('" + AccountWithDataSet.PHONE_NAME + "','"
+            + AccountWithDataSet.ACCOUNT_TYPE_PHONE + "')";
+        db.execSQL(sql);
     }
 }
