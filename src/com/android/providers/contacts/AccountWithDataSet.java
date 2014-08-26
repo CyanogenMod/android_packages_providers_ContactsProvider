@@ -27,6 +27,8 @@ import com.google.common.base.Objects;
 public class AccountWithDataSet {
     public static final AccountWithDataSet LOCAL = new AccountWithDataSet(null, null, null);
 
+    private static final String LOCAL_ACCOUNT = "phone-local";
+
     private final String mAccountName;
     private final String mAccountType;
     private final String mDataSet;
@@ -62,7 +64,8 @@ public class AccountWithDataSet {
     }
 
     public boolean isLocalAccount() {
-        return (mAccountName == null) && (mAccountType == null);
+        return (mAccountName == null && mAccountType == null)
+                || LOCAL_ACCOUNT.equals(mAccountType);
     }
 
     @Override
