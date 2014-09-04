@@ -115,7 +115,7 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
      *   800-899 Kitkat
      * </pre>
      */
-    static final int DATABASE_VERSION = 806;
+    static final int DATABASE_VERSION = 807;
 
     private static final String DATABASE_NAME = "contacts2.db";
     private static final String DATABASE_PRESENCE = "presence_db";
@@ -2556,6 +2556,15 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
             oldVersion = 806;
         }
 
+        if (oldVersion < 807) {
+            // Add NORMALIZED to PHONE_LOOKUP
+            // Regenerate views and search index
+            upgradeToVersion807(db);
+            upgradeSearchIndex = true;
+            upgradeViewsAndTriggers = true;
+            oldVersion = 807;
+        }
+
         if (upgradeViewsAndTriggers) {
             createContactsViews(db);
             createGroupsView(db);
@@ -4110,6 +4119,16 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
                     + " INTEGER NOT NULL DEFAULT " + Calls.DURATION_TYPE_ACTIVE + ";");
         } catch (SQLException e) {
             Log.w(TAG, "Exception upgrading contacts2.db from 805 to 806 " + e);
+        }
+    }
+
+    private void upgradeToVersion807(SQLiteDatabase db) {
+        try {
+            db.execSQL("ALTER TABLE " + Tables.PHONE_LOOKUP
+                    + " ADD " + PhoneLookupColumns.NORMALIZED + " TEXT NOT NULL DEFAULT '0';");
+            updateSearchIndexTable(db);
+        } catch (SQLException e) {
+            Log.w(TAG, "Exception upgrading contacts2.db from 806 to 807 " + e);
         }
     }
 
