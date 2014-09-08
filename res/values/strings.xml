@@ -58,10 +58,6 @@
          string in double quotes. -->
     <string name="voicemail_from_column">"Voicemail from "</string>
 
-    <string name="group_family">Family</string>
-    <string name="group_friend">Friends</string>
-    <string name="group_work">Coworkers</string>
-
     <!-- Debug tool - title of the dialog which copies the contact database into the external storage. [CHAR LIMIT=NONE] -->
     <string name="debug_dump_title">Copy contacts database</string>
 
