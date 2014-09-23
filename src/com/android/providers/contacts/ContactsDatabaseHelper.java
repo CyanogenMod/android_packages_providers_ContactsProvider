@@ -119,7 +119,7 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
      *   900-999 L
      * </pre>
      */
-    static final int DATABASE_VERSION = 910;
+    static final int DATABASE_VERSION = 911;
 
     public interface Tables {
         public static final String CONTACTS = "contacts";
@@ -1476,6 +1476,8 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
                         Calls.PRESENTATION_ALLOWED + "," +
                 Calls.DATE + " INTEGER," +
                 Calls.DURATION + " INTEGER," +
+                Calls.DURATION_TYPE + " INTEGER NOT NULL DEFAULT " +
+                        Calls.DURATION_TYPE_ACTIVE + "," +
                 Calls.DATA_USAGE + " INTEGER," +
                 Calls.TYPE + " INTEGER," +
                 Calls.FEATURES + " INTEGER NOT NULL DEFAULT 0," +
@@ -2806,6 +2808,11 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
         if (oldVersion < 910) {
             upgradeToVersion910(db);
             oldVersion = 910;
+        }
+
+        if (oldVersion < 911) {
+            upgradeToVersion911(db);
+            oldVersion = 911;
         }
 
         if (upgradeViewsAndTriggers) {
@@ -4233,6 +4240,11 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
         if (user.isManagedProfile()) {
             db.execSQL("DELETE FROM calls;");
         }
+    }
+
+    private void upgradeToVersion911(SQLiteDatabase db) {
+        db.execSQL("ALTER TABLE " + Tables.CALLS + " ADD " + Calls.DURATION_TYPE
+                + " INTEGER NOT NULL DEFAULT " + Calls.DURATION_TYPE_ACTIVE + ";");
     }
 
     public String extractHandleFromEmailAddress(String email) {

@@ -68,6 +68,7 @@ public class CallLogProvider extends ContentProvider {
         Calls.FEATURES,
         Calls.DATE,
         Calls.DURATION,
+        Calls.DURATION_TYPE,
         Calls.DATA_USAGE,
         Calls.PHONE_ACCOUNT_COMPONENT_NAME,
         Calls.PHONE_ACCOUNT_ID
@@ -96,6 +97,7 @@ public class CallLogProvider extends ContentProvider {
         sCallsProjectionMap.put(Calls.NUMBER_PRESENTATION, Calls.NUMBER_PRESENTATION);
         sCallsProjectionMap.put(Calls.DATE, Calls.DATE);
         sCallsProjectionMap.put(Calls.DURATION, Calls.DURATION);
+        sCallsProjectionMap.put(Calls.DURATION_TYPE, Calls.DURATION_TYPE);
         sCallsProjectionMap.put(Calls.DATA_USAGE, Calls.DATA_USAGE);
         sCallsProjectionMap.put(Calls.TYPE, Calls.TYPE);
         sCallsProjectionMap.put(Calls.FEATURES, Calls.FEATURES);
