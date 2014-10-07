@@ -35,6 +35,7 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.content.UriMatcher;
 import android.database.Cursor;
+import android.database.DatabaseUtils;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteDatabase.CursorFactory;
 import android.database.sqlite.SQLiteOpenHelper;
@@ -156,11 +157,11 @@ public class LocalGroupsProvider extends ContentProvider {
 
     private static class DatabaseHelper extends SQLiteOpenHelper {
 
-        private Context context;
+        private Context mContext;
 
         public DatabaseHelper(Context context) {
             this(context, DATABASES, null, VERSION);
-            this.context = context;
+            mContext = context;
         }
 
         public DatabaseHelper(Context context, String name,
@@ -176,15 +177,15 @@ public class LocalGroupsProvider extends ContentProvider {
                     + LocalGroups.GroupColumns.TITLE + " text,"
                     + LocalGroups.GroupColumns.COUNT + " INTEGER);");
 
-            db.execSQL("insert into local_groups ("
-                    + LocalGroups.GroupColumns.TITLE + ") values ('"
-                    + context.getString(R.string.group_family) + "')");
-            db.execSQL("insert into local_groups ("
-                    + LocalGroups.GroupColumns.TITLE + ") values ('"
-                    + context.getString(R.string.group_friend) + "')");
-            db.execSQL("insert into local_groups ("
-                    + LocalGroups.GroupColumns.TITLE + ") values ('"
-                    + context.getString(R.string.group_work) + "')");
+            db.execSQL("insert into local_groups (" + LocalGroups.GroupColumns.TITLE + ") values ("
+                    + DatabaseUtils.sqlEscapeString(
+                            mContext.getString(R.string.group_family)) + ")");
+            db.execSQL("insert into local_groups (" + LocalGroups.GroupColumns.TITLE + ") values ("
+                    + DatabaseUtils.sqlEscapeString(
+                            mContext.getString(R.string.group_friend)) + ")");
+            db.execSQL("insert into local_groups (" + LocalGroups.GroupColumns.TITLE + ") values ("
+                    + DatabaseUtils.sqlEscapeString(
+                            mContext.getString(R.string.group_work)) + ")");
 
         }
 
