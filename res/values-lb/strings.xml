@@ -14,6 +14,7 @@
      limitations under the License.
 -->
 <resources xmlns:android="http://schemas.android.com/apk/res/android" xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+  <string name="sharedUserLabel">Kär-Appe vun Android</string>
   <string name="app_label">Späicher fir Kontakter</string>
   <string name="provider_label">Kontakter</string>
   <string name="upgrade_msg">Kontaktdatebank aktualiséieren.</string>
@@ -22,10 +23,14 @@
   <string name="upgrade_out_of_memory_notification_text">Drécke fir d\'Aktualiséierung ofzeschléissen.</string>
   <string name="default_directory">Kontakter</string>
   <string name="local_invisible_directory">Aner</string>
+  <string name="read_write_all_voicemail_label">Op all d\'Sproochnoriichten zougräifen</string>
+  <string name="read_write_all_voicemail_description">Erlaabt der App all d\'Sproochnoriichten op déi dësen Apparat kann zougräifen ze späicheren an ze lueden.</string>
   <string name="voicemail_from_column">"Sproochmessage vum "</string>
   <string name="debug_dump_title">Kontaktdatebank kopéieren</string>
   <string name="debug_dump_database_message">Du bass am Gaang 1) eng Kopie vun denger Datebank an den interne Späicher ze maachen an där all d\'Informatioune vun de Kontakter an den Historique vun allen Telefonsgespréicher stinn, an 2) se ze mailen. Denk drun d\'Kopie ze läsche soubal s du s\'erfollegräich vum Apparat kopéiert hues oder d\'E-Mail ukomm ass.</string>
   <string name="debug_dump_delete_button">Elo läschen</string>
   <string name="debug_dump_start_button">Start</string>
+  <string name="debug_dump_email_sender_picker">Wiel e Programm aus fir däi Fichier ze schécken</string>
+  <string name="debug_dump_email_subject">Kontakt-DB ugehaangen</string>
   <string name="debug_dump_email_body">Ugehaangen ass meng Kontaktdatebank mat all menge Kontaktinformatiounen. Mat Virsiicht behandelen.</string>
 </resources>

@@ -15,7 +15,7 @@
      limitations under the License.
 -->
 <resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
-  <string name="group_family">Famiglia</string>
-  <string name="group_friend">Amici</string>
-  <string name="group_work">Collaboratori</string>
+  <string name="group_family">Сім\'я</string>
+  <string name="group_friend">Друзі</string>
+  <string name="group_work">Співробітники</string>
 </resources>

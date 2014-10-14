@@ -14,6 +14,23 @@
      limitations under the License.
 -->
 <resources xmlns:android="http://schemas.android.com/apk/res/android" xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+  <string name="sharedUserLabel">ئاندىرويىد يادرولۇق ئەپلەر</string>
+  <string name="app_label">ئالاقەداش ساقلىغۇچ</string>
+  <string name="provider_label">ئالاقەداشلار</string>
+  <string name="upgrade_msg">ئالاقەداشلار ساندانىنى يۈكسەلدۈرۈۋاتىدۇ.</string>
+  <string name="upgrade_out_of_memory_notification_ticker">ئالاقەداشلار ساندانىنى يۈكسەلدۈرۈشكە تېخىمۇ كۆپ ئەسلەك كېرەك.</string>
+  <string name="upgrade_out_of_memory_notification_title">ئالاقەداشلارنى ساقلىغۇچتىن يۈكسەلدۈرۈش</string>
+  <string name="upgrade_out_of_memory_notification_text">چېكىلسە يۈكسەلدۈرۈشنى تاماملايدۇ.</string>
+  <string name="default_directory">ئالاقەداشلار</string>
+  <string name="local_invisible_directory">باشقا</string>
+  <string name="read_write_all_voicemail_label">ھەممە ئۈنخەتكە يول قويۇش</string>
+  <string name="read_write_all_voicemail_description">ئەپنىڭ بۇ ئۈسكۈنىنى زىيارەت قىلىپ ھەممە ئۈن خەتلەرنى ساقلاپ ۋە ئىزدىشىگە يول قويىدۇ.</string>
+  <string name="voicemail_from_column">"ئۈنخەت ئورنى "</string>
+  <string name="debug_dump_title">ئالاقەداشلار ساندانىنى كۆچۈر</string>
+  <string name="debug_dump_database_message">سىز 1)ھەممە ئالاقەداشلىرىڭىزغا مۇناسىۋەتلىك ئۇچۇرلار ۋە چاقىرىش خاتىرىسىنى ئۆز ئىچىگە ئالغان ساندانىڭىزنىڭ كۆچۈرۈلمە نۇسخىسىنى تاييارلاپ، ئىچىدىكى ساقلىغۇچقا ساقلايدۇ، 2)تورخەت يوللىيالايدۇ. ئۈسكۈنىڭىزدىن كۆچۈرۈلمە نۇسخىنى كۆچۈرۈۋالغان ياكى تورخەتنى تاپشۇرۇۋالغاندىن كېيىن كۆچۈرۈلمە نۇسخىسىنى ئامالنىڭ بارىچە تېزراق ئۆچۈرۈۋېتىڭ.</string>
   <string name="debug_dump_delete_button">ھازىر ئۆچۈر</string>
+  <string name="debug_dump_start_button">باشلا</string>
   <string name="debug_dump_email_sender_picker">ھۆججىتىڭىزنى يوللايدىغان پىروگراممىدىن بىرنى تاللاڭ</string>
+  <string name="debug_dump_email_subject">ئالاقەداشلار ساندانى قوشۇلدى</string>
+  <string name="debug_dump_email_body">قوشۇلغىنى مېنىڭ ھەممە ئالاقەداشلار ئۇچۇرۇمنى ئۆز ئىچىگە ئالغان ئالاقەداشلار ساندانىم. ئېھتىيات بىلەن ساقلاڭ.</string>
 </resources>
