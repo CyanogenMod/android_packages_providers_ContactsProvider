@@ -2239,6 +2239,7 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
         boolean rescanDirectories = false;
         boolean rebuildSqliteStats = false;
         boolean upgradeLocaleSpecificData = false;
+        boolean upgradeFromCM11 = false;
 
         if (oldVersion == 99) {
             upgradeViewsAndTriggers = true;
@@ -2752,6 +2753,10 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
             oldVersion = 804;
         }
 
+        if (oldVersion > 806 && oldVersion < 900) {
+            upgradeFromCM11 = true;
+        }
+
         if (oldVersion < 900) {
             upgradeViewsAndTriggers = true;
             oldVersion = 900;
@@ -2811,7 +2816,8 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
         }
 
         if (oldVersion < 911) {
-            upgradeToVersion911(db);
+            if (!upgradeFromCM11)
+               upgradeToVersion911(db);
             oldVersion = 911;
         }
 
