@@ -19,4 +19,9 @@
     <string name="group_family">Family</string>
     <string name="group_friend">Friends</string>
     <string name="group_work">Coworkers</string>
+
+    <!-- Default Contact -->
+    <string name="preference_default_contact_name"></string>
+    <string name="preference_default_contact_number"></string>
+    <string name="preference_default_contact_email"></string>
 </resources>

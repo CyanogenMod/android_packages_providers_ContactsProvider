@@ -203,6 +203,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
     private static final int BACKGROUND_TASK_CHANGE_LOCALE = 9;
     private static final int BACKGROUND_TASK_CLEANUP_PHOTOS = 10;
     private static final int BACKGROUND_TASK_CLEAN_DELETE_LOG = 11;
+    private static final int BACKGROUND_TASK_ADD_DEFAULT_CONTACT = 12;
 
     // add for smart dialer
     private static final String[] NUMBER_2 = {"a","b","c"};
@@ -213,6 +214,10 @@ public class ContactsProvider2 extends AbstractContactsProvider
     private static final String[] NUMBER_7 = {"p","q","r","s"};
     private static final String[] NUMBER_8 = {"t","u","v"};
     private static final String[] NUMBER_9 = {"w","x","y","z"};
+
+    private static final String DEFAULT_CONTACT_PREFERENCE_SET = "DefaultSet";
+    private static final String DEFAULT_CONTACT_PREFERENCE_RAW_CONTACT_ID = "DefaultContactId";
+    private static final int DEFAULT_CONTACT_ID = -1;
 
     /** Default for the maximum number of returned aggregation suggestions. */
     private static final int DEFAULT_MAX_SUGGESTIONS = 5;
@@ -1517,6 +1522,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
         scheduleBackgroundTask(BACKGROUND_TASK_UPDATE_PROVIDER_STATUS);
         scheduleBackgroundTask(BACKGROUND_TASK_OPEN_WRITE_ACCESS);
         scheduleBackgroundTask(BACKGROUND_TASK_CLEANUP_PHOTOS);
+        scheduleBackgroundTask(BACKGROUND_TASK_ADD_DEFAULT_CONTACT);
 
         return true;
     }
@@ -1592,6 +1598,174 @@ public class ContactsProvider2 extends AbstractContactsProvider
     @VisibleForTesting
     PhotoPriorityResolver createPhotoPriorityResolver(Context context) {
         return new PhotoPriorityResolver(context);
+    }
+
+    private boolean isDefaultContactRequired() {
+        Resources resources = getContext().getResources();
+
+        boolean contactSaved = resources.getBoolean(R.bool.preference_default_contact_saved);
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getContext());
+        boolean exists = prefs.getBoolean(DEFAULT_CONTACT_PREFERENCE_SET, contactSaved);
+
+        if (!exists) {
+            long rawContactId = prefs.getLong(DEFAULT_CONTACT_PREFERENCE_RAW_CONTACT_ID,
+                    DEFAULT_CONTACT_ID);
+            if (rawContactId != -1 && checkDefaultContactInfo()) {
+                // Query to see if default contacts need to be updated
+                if (!verifyDefaultContact(rawContactId) && deleteDefaultContact(rawContactId)) {
+                    return true;
+                }
+            }
+        }
+
+        return exists;
+    }
+
+    private boolean verifyDefaultContact(long rawContactId) {
+        Resources resources = getContext().getResources();
+
+        String defaultContactName = resources.getString(
+                R.string.preference_default_contact_name);
+        String defaultContactNumber = resources.getString(
+                R.string.preference_default_contact_number);
+        String defaultContactEmail = resources.getString(
+                R.string.preference_default_contact_email);
+
+        boolean nameMatch = false, numberMatch = false, emailMatch = false;
+
+        Uri rawContactUri = ContentUris.withAppendedId(RawContacts.CONTENT_URI, rawContactId);
+        Uri entityUri = Uri.withAppendedPath(rawContactUri, RawContacts.Entity.CONTENT_DIRECTORY);
+        Cursor c = getContext().getContentResolver().query(entityUri,
+                new String[]{RawContacts.Entity.DATA_ID,
+                        RawContacts.Entity.MIMETYPE, RawContacts.Entity.DATA1},
+                null, null, null);
+        try {
+            if (c != null) {
+                while (c.moveToNext()) {
+                    if (!c.isNull(0)) {
+                        String mimeType = c.getString(1);
+                        String data = c.getString(2);
+
+                        if (mimeType.equals(StructuredName.CONTENT_ITEM_TYPE)) {
+                            if (defaultContactName.equals(data)) {
+                                nameMatch = true;
+                            }
+                        } else if (mimeType.equals(Phone.CONTENT_ITEM_TYPE)) {
+                            if (defaultContactNumber.equals(data)) {
+                                numberMatch = true;
+                            }
+                        } else if (mimeType.equals(Email.CONTENT_ITEM_TYPE)) {
+                            if (defaultContactEmail.equals(data)) {
+                                emailMatch = true;
+                            }
+                        }
+                    }
+                }
+            }
+        } finally {
+            if (c != null) {
+                c.close();
+            }
+        }
+
+        return (nameMatch && numberMatch && emailMatch);
+    }
+
+    private boolean deleteDefaultContact(long rawContactId) {
+        Uri rawContactUri = ContentUris.withAppendedId(RawContacts.CONTENT_URI, rawContactId);
+
+        int deleted = getContext().getContentResolver().delete(rawContactUri, null, null);
+
+        if (deleted > 0) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private boolean checkDefaultContactInfo() {
+        Resources resources = getContext().getResources();
+
+        String defaultContactName = resources.getString(
+                R.string.preference_default_contact_name);
+        // TODO: For columns that aren't required create a map of resources
+        String defaultContactNumber = resources.getString(
+                R.string.preference_default_contact_number);
+        String defaultContactEmail = resources.getString(
+                R.string.preference_default_contact_email);
+
+        return !(TextUtils.isEmpty(defaultContactName) || TextUtils.isEmpty(defaultContactNumber)
+                || TextUtils.isEmpty(defaultContactEmail));
+    }
+
+    // Check and add any default contacts
+    private void addDefaultContact() {
+        Resources resources = getContext().getResources();
+        long rawContactId = -1;
+
+        if (!checkDefaultContactInfo()) {
+            return;
+        }
+
+        String defaultContactName = resources.getString(
+                R.string.preference_default_contact_name);
+        String defaultContactNumber = resources.getString(
+                R.string.preference_default_contact_number);
+        String defaultContactEmail = resources.getString(
+                R.string.preference_default_contact_email);
+
+        ArrayList<ContentProviderOperation> ops =
+                new ArrayList<ContentProviderOperation>();
+        int rawContactInsertIndex = ops.size();
+
+        ops.add(ContentProviderOperation.newInsert(RawContacts.CONTENT_URI)
+                .withValue(RawContacts.ACCOUNT_TYPE, null)
+                .withValue(RawContacts.ACCOUNT_NAME, null)
+                .build());
+
+        ops.add(ContentProviderOperation.newInsert(Data.CONTENT_URI)
+                .withValueBackReference(Data.RAW_CONTACT_ID, rawContactInsertIndex)
+                .withValue(Data.MIMETYPE, StructuredName.CONTENT_ITEM_TYPE)
+                .withValue(StructuredName.DISPLAY_NAME, defaultContactName)
+                .build());
+
+        ops.add(ContentProviderOperation.newInsert(Data.CONTENT_URI)
+                .withValueBackReference(Data.RAW_CONTACT_ID, rawContactInsertIndex)
+                .withValue(Data.MIMETYPE, Phone.CONTENT_ITEM_TYPE)
+                .withValue(Phone.NUMBER, defaultContactNumber)
+                .withValue(Phone.TYPE, Phone.TYPE_WORK)
+                .build());
+
+        ops.add(ContentProviderOperation.newInsert(Data.CONTENT_URI)
+                .withValueBackReference(Data.RAW_CONTACT_ID, rawContactInsertIndex)
+                .withValue(Data.MIMETYPE, Email.CONTENT_ITEM_TYPE)
+                .withValue(Email.DATA, defaultContactEmail)
+                .withValue(Email.TYPE, Email.TYPE_WORK)
+                .build());
+
+        ContentProviderResult[] results = null;
+        try {
+            results = getContext().getContentResolver().applyBatch(
+                    ContactsContract.AUTHORITY, ops);
+        } catch (RemoteException e) {
+            e.printStackTrace();
+        } catch (OperationApplicationException e) {
+            e.printStackTrace();
+        } finally {
+            if (results != null && results.length >= 1) {
+                 rawContactId = ContentUris.parseId(results[0].uri);
+            }
+            setDefaultContactEntered(rawContactId);
+        }
+
+    }
+
+    private void setDefaultContactEntered(long id) {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getContext());
+        SharedPreferences.Editor editor = prefs.edit();
+        editor.putBoolean(DEFAULT_CONTACT_PREFERENCE_SET, false);
+        editor.putLong(DEFAULT_CONTACT_PREFERENCE_RAW_CONTACT_ID, id);
+        editor.commit();
     }
 
     protected void scheduleBackgroundTask(int task) {
@@ -1697,6 +1871,14 @@ public class ContactsProvider2 extends AbstractContactsProvider
             case BACKGROUND_TASK_CLEAN_DELETE_LOG: {
                 final SQLiteDatabase db = mDbHelper.get().getWritableDatabase();
                 DeletedContactsTableUtil.deleteOldLogs(db);
+                break;
+            }
+
+            case BACKGROUND_TASK_ADD_DEFAULT_CONTACT: {
+                if (isDefaultContactRequired()) {
+                    addDefaultContact();
+                }
+                break;
             }
         }
     }
