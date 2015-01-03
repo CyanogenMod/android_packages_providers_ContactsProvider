@@ -24,7 +24,7 @@
   <string name="default_directory">Kontakter</string>
   <string name="local_invisible_directory">Aner</string>
   <string name="read_write_all_voicemail_label">Op all d\'Sproochnoriichten zougräifen</string>
-  <string name="read_write_all_voicemail_description">Erlaabt der App all d\'Sproochnoriichten op déi dësen Apparat kann zougräifen ze späicheren an ze lueden.</string>
+  <string name="read_write_all_voicemail_description">Erlaabt der App, all d\'Sproochnoriichten op déi dësen Apparat kann zougräifen ze späicheren an ze lueden.</string>
   <string name="voicemail_from_column">"Sproochmessage vum "</string>
   <string name="debug_dump_title">Kontaktdatebank kopéieren</string>
   <string name="debug_dump_database_message">Du bass am Gaang 1) eng Kopie vun denger Datebank an den interne Späicher ze maachen an där all d\'Informatioune vun de Kontakter an den Historique vun allen Telefonsgespréicher stinn, an 2) se ze mailen. Denk drun d\'Kopie ze läsche soubal s du s\'erfollegräich vum Apparat kopéiert hues oder d\'E-Mail ukomm ass.</string>
