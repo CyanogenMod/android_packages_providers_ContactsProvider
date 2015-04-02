@@ -119,7 +119,7 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
      *   900-999 L
      * </pre>
      */
-    static final int DATABASE_VERSION = 911;
+    static final int DATABASE_VERSION = 912;
 
     public interface Tables {
         public static final String CONTACTS = "contacts";
@@ -2821,6 +2821,11 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
             oldVersion = 911;
         }
 
+        if (oldVersion < 912) {
+            upgradeToVersion912(db);
+            oldVersion = 912;
+        }
+
         if (upgradeViewsAndTriggers) {
             createContactsViews(db);
             createGroupsView(db);
@@ -4251,6 +4256,67 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
     private void upgradeToVersion911(SQLiteDatabase db) {
         db.execSQL("ALTER TABLE " + Tables.CALLS + " ADD " + Calls.DURATION_TYPE
                 + " INTEGER NOT NULL DEFAULT " + Calls.DURATION_TYPE_ACTIVE + ";");
+    }
+
+    // Must recreate phone_lookup table because we no longer use NORMALIZED column
+    // which had a not-null constraint
+    private void upgradeToVersion912(SQLiteDatabase db) {
+        db.execSQL("DROP TABLE IF EXISTS phone_lookup;");
+        db.execSQL("CREATE TABLE " + Tables.PHONE_LOOKUP + " (" +
+                PhoneLookupColumns.DATA_ID
+                        + " INTEGER REFERENCES data(_id) NOT NULL," +
+                PhoneLookupColumns.RAW_CONTACT_ID
+                        + " INTEGER REFERENCES raw_contacts(_id) NOT NULL," +
+                PhoneLookupColumns.NORMALIZED_NUMBER + " TEXT NOT NULL," +
+                PhoneLookupColumns.MIN_MATCH + " TEXT NOT NULL" +
+        ");");
+
+        db.execSQL("CREATE INDEX phone_lookup_index ON " + Tables.PHONE_LOOKUP + " (" +
+                PhoneLookupColumns.NORMALIZED_NUMBER + "," +
+                PhoneLookupColumns.RAW_CONTACT_ID + "," +
+                PhoneLookupColumns.DATA_ID +
+        ");");
+
+        db.execSQL("CREATE INDEX phone_lookup_min_match_index ON " + Tables.PHONE_LOOKUP + " (" +
+                PhoneLookupColumns.MIN_MATCH + "," +
+                PhoneLookupColumns.RAW_CONTACT_ID + "," +
+                PhoneLookupColumns.DATA_ID +
+        ");");
+
+        db.execSQL("CREATE INDEX phone_lookup_data_id_min_match_index ON " + Tables.PHONE_LOOKUP +
+                " (" + PhoneLookupColumns.DATA_ID + ", " + PhoneLookupColumns.MIN_MATCH + ");");
+
+        final long mimeTypeId = lookupMimeTypeId(db, Phone.CONTENT_ITEM_TYPE);
+        if (mimeTypeId == -1) {
+            return;
+        }
+
+        Cursor cursor = db.rawQuery(
+                    "SELECT _id, " + Phone.RAW_CONTACT_ID + ", " + Phone.NUMBER +
+                    " FROM " + Tables.DATA +
+                    " WHERE " + DataColumns.MIMETYPE_ID + "=" + mimeTypeId
+                            + " AND " + Phone.NUMBER + " NOT NULL", null);
+
+        ContentValues phoneValues = new ContentValues();
+        try {
+            while (cursor.moveToNext()) {
+                long dataID = cursor.getLong(0);
+                long rawContactID = cursor.getLong(1);
+                String number = cursor.getString(2);
+                String normalizedNumber = PhoneNumberUtils.normalizeNumber(number);
+                if (!TextUtils.isEmpty(normalizedNumber)) {
+                    phoneValues.clear();
+                    phoneValues.put(PhoneLookupColumns.RAW_CONTACT_ID, rawContactID);
+                    phoneValues.put(PhoneLookupColumns.DATA_ID, dataID);
+                    phoneValues.put(PhoneLookupColumns.NORMALIZED_NUMBER, normalizedNumber);
+                    phoneValues.put(PhoneLookupColumns.MIN_MATCH,
+                            PhoneNumberUtils.toCallerIDMinMatch(normalizedNumber));
+                    db.insert(Tables.PHONE_LOOKUP, null, phoneValues);
+                }
+            }
+        } finally {
+            cursor.close();
+        }
     }
 
     public String extractHandleFromEmailAddress(String email) {
