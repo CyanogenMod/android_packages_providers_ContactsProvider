@@ -5805,10 +5805,12 @@ public class ContactsProvider2 extends AbstractContactsProvider
                         DataColumns.MIMETYPE_ID + "=" + mDbHelper.get().getMimeTypeIdForPhone();
                 final String mimeTypeIsSipExpression =
                         DataColumns.MIMETYPE_ID + "=" + mDbHelper.get().getMimeTypeIdForSip();
+                final String mimeTypeIsSkypeExpression = DataColumns.MIMETYPE_ID + "="
+                        + mDbHelper.get().getMimeTypeId("vnd.android.cursor.item/com.skype.android.skypecall.action"); 
                 setTablesAndProjectionMapForData(qb, uri, projection, false);
                 if (match == CALLABLES) {
                     qb.appendWhere(" AND ((" + mimeTypeIsPhoneExpression +
-                            ") OR (" + mimeTypeIsSipExpression + "))");
+                            ") OR (" + mimeTypeIsSipExpression + ") OR (" + mimeTypeIsSkypeExpression + "))");
                 } else {
                     qb.appendWhere(" AND " + mimeTypeIsPhoneExpression);
                 }
@@ -5855,6 +5857,8 @@ public class ContactsProvider2 extends AbstractContactsProvider
                         DataColumns.MIMETYPE_ID + "=" + mDbHelper.get().getMimeTypeIdForPhone();
                 final String mimeTypeIsSipExpression =
                         DataColumns.MIMETYPE_ID + "=" + mDbHelper.get().getMimeTypeIdForSip();
+                final String mimeTypeIsSkypeExpression = DataColumns.MIMETYPE_ID + "="
+                        + mDbHelper.get().getMimeTypeId("vnd.android.cursor.item/com.skype.android.skypecall.action"); 
 
                 String typeParam = uri.getQueryParameter(DataUsageFeedback.USAGE_TYPE);
                 final int typeInt = getDataUsageFeedbackType(typeParam,
@@ -5862,7 +5866,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
                 setTablesAndProjectionMapForData(qb, uri, projection, true, typeInt);
                 if (match == CALLABLES_FILTER) {
                     qb.appendWhere(" AND ((" + mimeTypeIsPhoneExpression +
-                            ") OR (" + mimeTypeIsSipExpression + "))");
+                            ") OR (" + mimeTypeIsSipExpression + ") OR (" + mimeTypeIsSkypeExpression + "))");
                 } else {
                     qb.appendWhere(" AND " + mimeTypeIsPhoneExpression);
                 }
