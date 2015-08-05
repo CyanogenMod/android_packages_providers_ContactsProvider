@@ -4948,6 +4948,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
             final List<AccountWithDataSet> accountsWithDataSetsToDelete = Lists.newArrayList();
             for (AccountWithDataSet knownAccountWithDataSet : knownAccountsWithDataSets) {
                 if (knownAccountWithDataSet.isLocalAccount()
+                        || knownAccountWithDataSet.isSimAccount()
                         || knownAccountWithDataSet.inSystemAccounts(systemAccounts)) {
                     continue;
                 }
@@ -5166,6 +5167,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
                 final AccountWithDataSet accountWithDataSet = AccountWithDataSet.get(
                         c.getString(0), c.getString(1), null);
                 if (accountWithDataSet.isLocalAccount()
+                        || accountWithDataSet.isSimAccount()
                         || accountWithDataSet.inSystemAccounts(systemAccounts)) {
                     // Account still exists.
                     continue;
