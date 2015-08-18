@@ -1191,6 +1191,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
         matcher.addURI(ContactsContract.AUTHORITY, "contacts/strequent/", CONTACTS_STREQUENT);
         matcher.addURI(ContactsContract.AUTHORITY, "contacts/strequent/filter/*",
                 CONTACTS_STREQUENT_FILTER);
+        matcher.addURI(ContactsContract.AUTHORITY, "contacts/group", CONTACTS_GROUP);
         matcher.addURI(ContactsContract.AUTHORITY, "contacts/group/*", CONTACTS_GROUP);
         matcher.addURI(ContactsContract.AUTHORITY, "contacts/frequent", CONTACTS_FREQUENT);
         matcher.addURI(ContactsContract.AUTHORITY, "contacts/delete_usage", CONTACTS_DELETE_USAGE);
