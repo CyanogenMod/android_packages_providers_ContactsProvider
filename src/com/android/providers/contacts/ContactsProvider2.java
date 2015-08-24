@@ -1455,6 +1455,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
     private Handler mBackgroundHandler;
 
     private long mLastPhotoCleanup = 0;
+    private boolean isPhoneNumberFuzzySearchEnabled;
 
     private FastScrollingIndexCache mFastScrollingIndexCache;
 
@@ -1528,6 +1529,8 @@ public class ContactsProvider2 extends AbstractContactsProvider
         profileInfo.authority = ContactsContract.AUTHORITY;
         mProfileProvider.attachInfo(getContext(), profileInfo);
         mProfileHelper = mProfileProvider.getDatabaseHelper(getContext());
+        isPhoneNumberFuzzySearchEnabled = getContext().getResources().getBoolean(
+                R.bool.phone_number_fuzzy_search);
 
         // Initialize the pre-authorized URI duration.
         mPreAuthorizedUriDuration = DEFAULT_PREAUTHORIZED_URI_EXPIRATION;
@@ -7414,11 +7417,228 @@ public class ContactsProvider2 extends AbstractContactsProvider
             int maxTokens = args != null && args.length > 3 ? Integer.parseInt(args[3])
                     : DEFAULT_SNIPPET_ARG_MAX_TOKENS;
 
-            appendSearchIndexJoin(
-                    sb, filter, true, startMatch, endMatch, ellipsis, maxTokens, deferSnippeting);
+            if (isPhoneNumberFuzzySearchEnabled) {
+                appendSearchIndexJoinForFuzzySearch(sb, filter, true,
+                        startMatch, endMatch, ellipsis, maxTokens, deferSnippeting);
+            } else {
+                appendSearchIndexJoin(sb, filter, true, startMatch, endMatch,
+                        ellipsis, maxTokens, deferSnippeting);
+            }
         } else {
-            appendSearchIndexJoin(sb, filter, false, null, null, null, 0, false);
+            if (isPhoneNumberFuzzySearchEnabled) {
+                appendSearchIndexJoinForFuzzySearch(sb, filter, false, null,
+                        null, null, 0, false);
+            } else {
+                appendSearchIndexJoin(sb, filter, false, null, null, null, 0,
+                        false);
+            }
         }
+    }
+
+    public void appendSearchIndexJoinForFuzzySearch(StringBuilder sb, String filter,
+            boolean snippetNeeded, String startMatch, String endMatch, String ellipsis,
+            int maxTokens, boolean deferSnippeting) {
+        boolean isEmailAddress = false;
+        String emailAddress = null;
+        boolean isPhoneNumber = false;
+        String phoneNumber = null;
+        String numberE164 = null;
+
+
+        if (filter.indexOf('@') != -1) {
+            emailAddress = mDbHelper.get().extractAddressFromEmailAddress(filter);
+            isEmailAddress = !TextUtils.isEmpty(emailAddress);
+        } else {
+            isPhoneNumber = isPhoneNumber(filter);
+            if (isPhoneNumber) {
+                phoneNumber = PhoneNumberUtils.normalizeNumber(filter);
+                numberE164 = PhoneNumberUtils.formatNumberToE164(phoneNumber,
+                        mDbHelper.get().getCurrentCountryIso());
+            }
+        }
+
+        final String SNIPPET_CONTACT_ID = "snippet_contact_id";
+        sb.append(" JOIN (SELECT " + SearchIndexColumns.CONTACT_ID + " AS " + SNIPPET_CONTACT_ID);
+        if (snippetNeeded) {
+            sb.append(", ");
+            if (isEmailAddress) {
+                sb.append("ifnull(");
+                if (!deferSnippeting) {
+                    // Add the snippet marker only when we're really creating snippet.
+                    DatabaseUtils.appendEscapedSQLString(sb, startMatch);
+                    sb.append("||");
+                }
+                sb.append("(SELECT MIN(" + Email.ADDRESS + ")");
+                sb.append(" FROM " + Tables.DATA_JOIN_RAW_CONTACTS);
+                sb.append(" WHERE  " + Tables.SEARCH_INDEX + "." + SearchIndexColumns.CONTACT_ID);
+                sb.append("=" + RawContacts.CONTACT_ID + " AND " + Email.ADDRESS + " LIKE ");
+                DatabaseUtils.appendEscapedSQLString(sb, filter + "%");
+                sb.append(")");
+                if (!deferSnippeting) {
+                    sb.append("||");
+                    DatabaseUtils.appendEscapedSQLString(sb, endMatch);
+                }
+                sb.append(",");
+
+                if (deferSnippeting) {
+                    sb.append(SearchIndexColumns.CONTENT);
+                } else {
+                    appendSnippetFunction(sb, startMatch, endMatch, ellipsis, maxTokens);
+                }
+                sb.append(")");
+            } else if (isPhoneNumber) {
+                sb.append("ifnull(");
+                if (!deferSnippeting) {
+                    // Add the snippet marker only when we're really creating snippet.
+                    DatabaseUtils.appendEscapedSQLString(sb, startMatch);
+                    sb.append("||");
+                }
+                sb.append("(SELECT MIN(" + Phone.NUMBER + ")");
+                sb.append(" FROM " +
+                        Tables.DATA_JOIN_RAW_CONTACTS + " JOIN " + Tables.PHONE_LOOKUP);
+                sb.append(" ON " + DataColumns.CONCRETE_ID);
+                sb.append("=" + Tables.PHONE_LOOKUP + "." + PhoneLookupColumns.DATA_ID);
+                sb.append(" WHERE  " + Tables.SEARCH_INDEX + "." + SearchIndexColumns.CONTACT_ID);
+                sb.append("=" + RawContacts.CONTACT_ID);
+                sb.append(" AND (" + PhoneLookupColumns.NORMALIZED_NUMBER + " LIKE '%");
+                sb.append(phoneNumber);
+                sb.append("%'");
+                sb.append("))");
+                if (! deferSnippeting) {
+                    sb.append("||");
+                    DatabaseUtils.appendEscapedSQLString(sb, endMatch);
+                }
+                sb.append(",");
+
+                if (deferSnippeting) {
+                    sb.append(SearchIndexColumns.CONTENT);
+                } else {
+                    appendSnippetFunction(sb, startMatch, endMatch, ellipsis, maxTokens);
+                }
+                sb.append(")");
+            } else {
+                final String normalizedFilter = NameNormalizer.normalize(filter);
+                if (!TextUtils.isEmpty(normalizedFilter)) {
+                    if (deferSnippeting) {
+                        sb.append(SearchIndexColumns.CONTENT);
+                    } else {
+                        sb.append("(CASE WHEN EXISTS (SELECT 1 FROM ");
+                        sb.append(Tables.RAW_CONTACTS + " AS rc INNER JOIN ");
+                        sb.append(Tables.NAME_LOOKUP + " AS nl ON (rc." + RawContacts._ID);
+                        sb.append("=nl." + NameLookupColumns.RAW_CONTACT_ID);
+                        sb.append(") WHERE nl." + NameLookupColumns.NORMALIZED_NAME);
+                        sb.append(" GLOB '" + normalizedFilter + "*' AND ");
+                        sb.append("nl." + NameLookupColumns.NAME_TYPE + "=");
+                        sb.append(NameLookupType.NAME_COLLATION_KEY + " AND ");
+                        sb.append(Tables.SEARCH_INDEX + "." + SearchIndexColumns.CONTACT_ID);
+                        sb.append("=rc." + RawContacts.CONTACT_ID);
+                        sb.append(") THEN NULL ELSE ");
+                        appendSnippetFunction(sb, startMatch, endMatch, ellipsis, maxTokens);
+                        sb.append(" END)");
+                    }
+                } else {
+                    sb.append("NULL");
+                }
+            }
+            sb.append(" AS " + SearchSnippets.SNIPPET);
+        }
+
+        sb.append(" FROM " + Tables.SEARCH_INDEX);
+        sb.append(" WHERE ");
+        if (isPhoneNumber) {
+            sb.append(Tables.SEARCH_INDEX + " MATCH '");
+            // normalized version of the phone number (phoneNumber can only have
+            // + and digits)
+            final String phoneNumberCriteria = " OR tokens:" + phoneNumber
+                    + "*";
+
+            // international version of this number (numberE164 can only have +
+            // and digits)
+            final String numberE164Criteria = (numberE164 != null && !TextUtils
+                    .equals(numberE164, phoneNumber)) ? " OR tokens:"
+                    + numberE164 + "*" : "";
+
+            // combine all criteria
+            final String commonCriteria = phoneNumberCriteria
+                    + numberE164Criteria;
+
+            // search in content
+            sb.append(SearchIndexManager.getFtsMatchQuery(filter,
+                    FtsQueryBuilder.getDigitsQueryBuilder(commonCriteria)));
+            sb.append("' AND " + SNIPPET_CONTACT_ID + " IN "
+                    + Tables.DEFAULT_DIRECTORY);
+            if (snippetNeeded) {
+            // only support fuzzy search when there is snippet column and
+            // the filter is phone number!
+                sb.append(" UNION SELECT " + SearchIndexColumns.CONTACT_ID + " AS " +
+                        SNIPPET_CONTACT_ID);
+                sb.append(", ");
+                if (!deferSnippeting) {
+                    // Add the snippet marker only when we're really creating snippet.
+                    DatabaseUtils.appendEscapedSQLString(sb, startMatch);
+                    sb.append("||");
+                }
+                sb.append("(SELECT MIN(" + Phone.NUMBER + ")");
+                sb.append(" FROM " +
+                        Tables.DATA_JOIN_RAW_CONTACTS + " JOIN " + Tables.PHONE_LOOKUP);
+                sb.append(" ON " + DataColumns.CONCRETE_ID);
+                sb.append("=" + Tables.PHONE_LOOKUP + "." + PhoneLookupColumns.DATA_ID);
+                sb.append(" WHERE  " + Tables.SEARCH_INDEX + "." + SearchIndexColumns.CONTACT_ID);
+                sb.append("=" + RawContacts.CONTACT_ID);
+                sb.append(" AND (" + PhoneLookupColumns.NORMALIZED_NUMBER + " LIKE '%");
+                sb.append(phoneNumber);
+                sb.append("%'");
+                sb.append("))");
+                if (!deferSnippeting) {
+                    sb.append("||");
+                    DatabaseUtils.appendEscapedSQLString(sb, endMatch);
+                }
+                sb.append(" AS " + SearchSnippets.SNIPPET);
+                sb.append(" FROM " + Tables.SEARCH_INDEX);
+                sb.append(" WHERE " + SearchSnippets.SNIPPET + " IS NOT NULL ");
+                sb.append(" AND " + SNIPPET_CONTACT_ID + " IN " + Tables.DEFAULT_DIRECTORY + ")");
+            } else {
+                sb.append(")");
+            }
+        } else {
+            sb.append(Tables.SEARCH_INDEX + " MATCH '");
+            if (isEmailAddress) {
+                // we know that the emailAddress contains a @. This phrase search should be
+                // scoped against "content:" only, but unfortunately SQLite doesn't support
+                // phrases and scoped columns at once. This is fine in this case however, because:
+                // We can't erroneously match against name, as it is all-hex (so the @ can't match)
+                // We can't match against tokens, because phone-numbers can't contain @
+                final String sanitizedEmailAddress =
+                        emailAddress == null ? "" : sanitizeMatch(emailAddress);
+                sb.append("\"");
+                sb.append(sanitizedEmailAddress);
+                sb.append("*\"");
+            } else if (isPhoneNumber) {
+                // normalized version of the phone number (phoneNumber can only have + and digits)
+                final String phoneNumberCriteria = " OR tokens:" + phoneNumber + "*";
+
+            // international version of this number (numberE164 can only have + and digits)
+            final String numberE164Criteria =
+                    (numberE164 != null && !TextUtils.equals(numberE164, phoneNumber))
+                    ? " OR tokens:" + numberE164 + "*"
+                    : "";
+
+            // combine all criteria
+            final String commonCriteria =
+                    phoneNumberCriteria + numberE164Criteria;
+
+            // search in content
+            sb.append(SearchIndexManager.getFtsMatchQuery(filter,
+                    FtsQueryBuilder.getDigitsQueryBuilder(commonCriteria)));
+        } else {
+            // general case: not a phone number, not an email-address
+            sb.append(SearchIndexManager.getFtsMatchQuery(filter,
+                    FtsQueryBuilder.SCOPED_NAME_NORMALIZING));
+        }
+        // Omit results in "Other Contacts".
+            sb.append("' AND " + SNIPPET_CONTACT_ID + " IN " + Tables.DEFAULT_DIRECTORY + ")");
+        }
+        sb.append(" ON (" + Contacts._ID + "=" + SNIPPET_CONTACT_ID + ")");
     }
 
     public void appendSearchIndexJoin(StringBuilder sb, String filter,
