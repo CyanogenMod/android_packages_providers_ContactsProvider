@@ -52,6 +52,8 @@ import com.android.providers.contacts.util.UserUtils;
 
 import com.google.common.annotations.VisibleForTesting;
 
+import com.cyanogen.ambient.incall.CallLogConstants;
+
 import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -85,7 +87,9 @@ public class CallLogProvider extends ContentProvider {
         Calls.DATA_USAGE,
         Calls.PHONE_ACCOUNT_COMPONENT_NAME,
         Calls.PHONE_ACCOUNT_ID,
-        ContactsDatabaseHelper.CallColumns.ORIGIN
+        ContactsDatabaseHelper.CallColumns.ORIGIN,
+        CallLogConstants.PLUGIN_NAME,
+        CallLogConstants.PLUGIN_USER_HANDLE
     };
 
     static final String[] MINIMAL_PROJECTION = new String[] { Calls._ID };
@@ -95,6 +99,13 @@ public class CallLogProvider extends ContentProvider {
     private static final int CALLS_ID = 2;
 
     private static final int CALLS_FILTER = 3;
+
+    private static final int CALLS_PLUGIN = 4;
+
+    /** Path Segments */
+    private static final int ALL_CALL_LOGS_PATH = 2;
+    private static final int PLUGIN_NAME_PATH = 2;
+    private static final int PLUGIN_USER_NAME_PATH = 3;
 
     private static final String UNHIDE_BY_PHONE_ACCOUNT_QUERY =
             "UPDATE " + Tables.CALLS + " SET " + Calls.PHONE_ACCOUNT_HIDDEN + "=0 WHERE " +
@@ -108,7 +119,11 @@ public class CallLogProvider extends ContentProvider {
     static {
         sURIMatcher.addURI(CallLog.AUTHORITY, "calls", CALLS);
         sURIMatcher.addURI(CallLog.AUTHORITY, "calls/#", CALLS_ID);
+        sURIMatcher.addURI(CallLog.AUTHORITY, "calls/all", CALLS);
         sURIMatcher.addURI(CallLog.AUTHORITY, "calls/filter/*", CALLS_FILTER);
+        sURIMatcher.addURI(CallLog.AUTHORITY, "calls/plugin", CALLS_PLUGIN);
+        sURIMatcher.addURI(CallLog.AUTHORITY, "calls/plugin/*", CALLS_PLUGIN);
+        sURIMatcher.addURI(CallLog.AUTHORITY, "calls/plugin/*/*", CALLS_PLUGIN);
     }
 
     private static final HashMap<String, String> sCallsProjectionMap;
@@ -144,6 +159,9 @@ public class CallLogProvider extends ContentProvider {
         sCallsProjectionMap.put(Calls.CACHED_FORMATTED_NUMBER, Calls.CACHED_FORMATTED_NUMBER);
         sCallsProjectionMap.put(ContactsDatabaseHelper.CallColumns.ORIGIN,
                 ContactsDatabaseHelper.CallColumns.ORIGIN);
+        sCallsProjectionMap.put(CallLogConstants.PLUGIN_NAME, CallLogConstants.PLUGIN_NAME);
+        sCallsProjectionMap.put(CallLogConstants.PLUGIN_USER_HANDLE,
+                CallLogConstants.PLUGIN_USER_HANDLE);
     }
 
     private HandlerThread mBackgroundThread;
@@ -214,9 +232,15 @@ public class CallLogProvider extends ContentProvider {
         selectionBuilder.addClause(EXCLUDE_HIDDEN_SELECTION);
 
         final int match = sURIMatcher.match(uri);
+        List<String> pathSegments = uri.getPathSegments();
+
         switch (match) {
-            case CALLS:
+            case CALLS: {
+                if (pathSegments.size() < ALL_CALL_LOGS_PATH) {
+                    qb.appendWhere(CallLogConstants.PLUGIN_NAME + " IS NULL ");
+                }
                 break;
+            }
 
             case CALLS_ID: {
                 selectionBuilder.addClause(getEqualityClause(Calls._ID,
@@ -225,7 +249,6 @@ public class CallLogProvider extends ContentProvider {
             }
 
             case CALLS_FILTER: {
-                List<String> pathSegments = uri.getPathSegments();
                 String phoneNumber = pathSegments.size() >= 2 ? pathSegments.get(2) : null;
                 if (!TextUtils.isEmpty(phoneNumber)) {
                     qb.appendWhere("PHONE_NUMBERS_EQUAL(number, ");
@@ -234,6 +257,25 @@ public class CallLogProvider extends ContentProvider {
                 } else {
                     qb.appendWhere(Calls.NUMBER_PRESENTATION + "!="
                             + Calls.PRESENTATION_ALLOWED);
+                }
+                break;
+            }
+
+            case CALLS_PLUGIN: {
+                String pluginName = pathSegments.size() >= PLUGIN_NAME_PATH ?
+                        pathSegments.get(PLUGIN_NAME_PATH) : null;
+                if (!TextUtils.isEmpty(pluginName)) {
+                    qb.appendWhere(CallLogConstants.PLUGIN_NAME + " == ");
+                    qb.appendWhereEscapeString(pluginName);
+                    if (pathSegments.size() >= PLUGIN_USER_NAME_PATH) {
+                        String pluginUserName =  pathSegments.get(PLUGIN_USER_NAME_PATH);
+                        if (!TextUtils.isEmpty(pluginUserName)) {
+                            qb.appendWhere(" AND " + CallLogConstants.PLUGIN_USER_HANDLE + " == ");
+                            qb.appendWhereEscapeString(pluginUserName);
+                        }
+                    }
+                } else {
+                    qb.appendWhere(CallLogConstants.PLUGIN_NAME + " IS NOT NULL");
                 }
                 break;
             }
@@ -292,6 +334,8 @@ public class CallLogProvider extends ContentProvider {
             case CALLS_ID:
                 return Calls.CONTENT_ITEM_TYPE;
             case CALLS_FILTER:
+                return Calls.CONTENT_TYPE;
+            case CALLS_PLUGIN:
                 return Calls.CONTENT_TYPE;
             default:
                 throw new IllegalArgumentException("Unknown URI: " + uri);

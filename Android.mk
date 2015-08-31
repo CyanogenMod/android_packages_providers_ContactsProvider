@@ -10,6 +10,7 @@ LOCAL_SRC_FILES += \
 
 LOCAL_JAVA_LIBRARIES := ext telephony-common
 
+LOCAL_STATIC_JAVA_AAR_LIBRARIES := ambientsdk
 LOCAL_STATIC_JAVA_LIBRARIES += android-common com.android.vcard guava
 
 # The Emma tool analyzes code coverage when running unit tests on the
@@ -25,6 +26,10 @@ LOCAL_EMMA_COVERAGE_FILTER := +com.android.providers.contacts.*
 # would dilute the coverage results. These options do not affect regular
 # production builds.
 LOCAL_EMMA_COVERAGE_FILTER := +com.android.providers.contacts.*
+
+LOCAL_AAPT_FLAGS := \
+    --auto-add-overlay \
+    --extra-packages com.cyanogen.ambient
 
 LOCAL_PACKAGE_NAME := ContactsProvider
 LOCAL_CERTIFICATE := shared

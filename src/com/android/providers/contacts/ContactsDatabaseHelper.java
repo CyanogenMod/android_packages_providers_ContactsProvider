@@ -92,6 +92,9 @@ import com.google.common.annotations.VisibleForTesting;
 
 import libcore.icu.ICU;
 
+import com.cyanogen.ambient.incall.CallLogConstants;
+
+import java.util.HashMap;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -121,7 +124,7 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
      *   1000-1099 M
      * </pre>
      */
-    static final int DATABASE_VERSION = 1012;
+    static final int DATABASE_VERSION = 1013;
 
     public interface Tables {
         public static final String CONTACTS = "contacts";
@@ -1532,6 +1535,8 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
                 Calls.CACHED_PHOTO_URI + " TEXT," +
                 Calls.CACHED_FORMATTED_NUMBER + " TEXT," +
                 CallColumns.ORIGIN + " TEXT," +
+                CallLogConstants.PLUGIN_NAME + " TEXT DEFAULT NULL," +
+                CallLogConstants.PLUGIN_USER_HANDLE + " TEXT DEFAULT NULL," +
                 Voicemails._DATA + " TEXT," +
                 Voicemails.HAS_CONTENT + " INTEGER," +
                 Voicemails.MIME_TYPE + " TEXT," +
@@ -2923,6 +2928,11 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
         if (oldVersion < 1012) {
             upgradeToVersion1012(db);
             oldVersion = 1012;
+        }
+
+        if (oldVersion < 1013) {
+            upgradeToVersion1013(db);
+            oldVersion = 1013;
         }
 
         if (upgradeViewsAndTriggers) {
@@ -4477,6 +4487,15 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
     // Add origin column to record where a call came from via the origin extra.
     private void upgradeToVersion1012(SQLiteDatabase db) {
         db.execSQL("ALTER TABLE " + Tables.CALLS + " ADD " + CallColumns.ORIGIN
+                + " TEXT DEFAULT NULL;");
+    }
+
+    // Add Plugin name and User handle for incall api plugins.
+    private void upgradeToVersion1013(SQLiteDatabase db) {
+        db.execSQL("ALTER TABLE " + Tables.CALLS + " ADD " + CallLogConstants.PLUGIN_NAME
+                + " TEXT DEFAULT NULL;");
+
+        db.execSQL("ALTER TABLE " + Tables.CALLS + " ADD " + CallLogConstants.PLUGIN_USER_HANDLE
                 + " TEXT DEFAULT NULL;");
     }
 
