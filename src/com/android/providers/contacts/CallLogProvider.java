@@ -88,7 +88,7 @@ public class CallLogProvider extends ContentProvider {
         Calls.PHONE_ACCOUNT_COMPONENT_NAME,
         Calls.PHONE_ACCOUNT_ID,
         ContactsDatabaseHelper.CallColumns.ORIGIN,
-        CallLogConstants.PLUGIN_NAME,
+        CallLogConstants.PLUGIN_PACKAGE_NAME,
         CallLogConstants.PLUGIN_USER_HANDLE
     };
 
@@ -104,8 +104,8 @@ public class CallLogProvider extends ContentProvider {
 
     /** Path Segments */
     private static final int ALL_CALL_LOGS_PATH = 2;
-    private static final int PLUGIN_NAME_PATH = 2;
-    private static final int PLUGIN_USER_NAME_PATH = 3;
+    private static final int PLUGIN_PACKAGE_NAME_PATH = 2;
+    private static final int PACKAGE_USER_NAME_PATH = 3;
 
     private static final String UNHIDE_BY_PHONE_ACCOUNT_QUERY =
             "UPDATE " + Tables.CALLS + " SET " + Calls.PHONE_ACCOUNT_HIDDEN + "=0 WHERE " +
@@ -159,7 +159,8 @@ public class CallLogProvider extends ContentProvider {
         sCallsProjectionMap.put(Calls.CACHED_FORMATTED_NUMBER, Calls.CACHED_FORMATTED_NUMBER);
         sCallsProjectionMap.put(ContactsDatabaseHelper.CallColumns.ORIGIN,
                 ContactsDatabaseHelper.CallColumns.ORIGIN);
-        sCallsProjectionMap.put(CallLogConstants.PLUGIN_NAME, CallLogConstants.PLUGIN_NAME);
+        sCallsProjectionMap.put(CallLogConstants.PLUGIN_PACKAGE_NAME,
+                CallLogConstants.PLUGIN_PACKAGE_NAME);
         sCallsProjectionMap.put(CallLogConstants.PLUGIN_USER_HANDLE,
                 CallLogConstants.PLUGIN_USER_HANDLE);
     }
@@ -237,7 +238,7 @@ public class CallLogProvider extends ContentProvider {
         switch (match) {
             case CALLS: {
                 if (pathSegments.size() < ALL_CALL_LOGS_PATH) {
-                    qb.appendWhere(CallLogConstants.PLUGIN_NAME + " IS NULL ");
+                    qb.appendWhere(CallLogConstants.PLUGIN_PACKAGE_NAME + " IS NULL ");
                 }
                 break;
             }
@@ -262,20 +263,20 @@ public class CallLogProvider extends ContentProvider {
             }
 
             case CALLS_PLUGIN: {
-                String pluginName = pathSegments.size() >= PLUGIN_NAME_PATH ?
-                        pathSegments.get(PLUGIN_NAME_PATH) : null;
+                String pluginName = pathSegments.size() >= PLUGIN_PACKAGE_NAME_PATH ?
+                        pathSegments.get(PLUGIN_PACKAGE_NAME_PATH) : null;
                 if (!TextUtils.isEmpty(pluginName)) {
-                    qb.appendWhere(CallLogConstants.PLUGIN_NAME + " == ");
+                    qb.appendWhere(CallLogConstants.PLUGIN_PACKAGE_NAME + " == ");
                     qb.appendWhereEscapeString(pluginName);
-                    if (pathSegments.size() >= PLUGIN_USER_NAME_PATH) {
-                        String pluginUserName =  pathSegments.get(PLUGIN_USER_NAME_PATH);
+                    if (pathSegments.size() >= PACKAGE_USER_NAME_PATH) {
+                        String pluginUserName =  pathSegments.get(PACKAGE_USER_NAME_PATH);
                         if (!TextUtils.isEmpty(pluginUserName)) {
                             qb.appendWhere(" AND " + CallLogConstants.PLUGIN_USER_HANDLE + " == ");
                             qb.appendWhereEscapeString(pluginUserName);
                         }
                     }
                 } else {
-                    qb.appendWhere(CallLogConstants.PLUGIN_NAME + " IS NOT NULL");
+                    qb.appendWhere(CallLogConstants.PLUGIN_PACKAGE_NAME + " IS NOT NULL");
                 }
                 break;
             }

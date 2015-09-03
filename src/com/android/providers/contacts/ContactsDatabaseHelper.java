@@ -1535,7 +1535,7 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
                 Calls.CACHED_PHOTO_URI + " TEXT," +
                 Calls.CACHED_FORMATTED_NUMBER + " TEXT," +
                 CallColumns.ORIGIN + " TEXT," +
-                CallLogConstants.PLUGIN_NAME + " TEXT DEFAULT NULL," +
+                CallLogConstants.PLUGIN_PACKAGE_NAME + " TEXT DEFAULT NULL," +
                 CallLogConstants.PLUGIN_USER_HANDLE + " TEXT DEFAULT NULL," +
                 Voicemails._DATA + " TEXT," +
                 Voicemails.HAS_CONTENT + " INTEGER," +
@@ -4492,7 +4492,7 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
 
     // Add Plugin name and User handle for incall api plugins.
     private void upgradeToVersion1013(SQLiteDatabase db) {
-        db.execSQL("ALTER TABLE " + Tables.CALLS + " ADD " + CallLogConstants.PLUGIN_NAME
+        db.execSQL("ALTER TABLE " + Tables.CALLS + " ADD " + CallLogConstants.PLUGIN_PACKAGE_NAME
                 + " TEXT DEFAULT NULL;");
 
         db.execSQL("ALTER TABLE " + Tables.CALLS + " ADD " + CallLogConstants.PLUGIN_USER_HANDLE
