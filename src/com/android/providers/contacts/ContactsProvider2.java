@@ -163,6 +163,9 @@ import com.android.providers.contacts.util.NeededForTesting;
 import com.android.providers.contacts.util.UserUtils;
 import com.android.vcard.VCardComposer;
 import com.android.vcard.VCardConfig;
+
+import com.cyanogen.ambient.incall.CallableConstants;
+
 import com.google.android.collect.Lists;
 import com.google.android.collect.Maps;
 import com.google.android.collect.Sets;
@@ -196,6 +199,8 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 
 import org.json.JSONException;
+
+import static com.cyanogen.ambient.incall.CallableConstants.ADDITIONAL_CALLABLE_MIMETYPES_PARAM_KEY;
 
 /**
  * Contacts content provider. The contract between this provider and applications
@@ -367,8 +372,11 @@ public class ContactsProvider2 extends AbstractContactsProvider
     private static final int CALLABLES_FILTER = 3013;
     private static final int CONTACTABLES = 3014;
     private static final int CONTACTABLES_FILTER = 3015;
+
     private static final int PHONES_ENTERPRISE = 3016;
     private static final int EMAILS_LOOKUP_ENTERPRISE = 3017;
+
+    private static final int CALLABLE_CONTACTS = 3018;
 
     private static final int PHONE_LOOKUP = 4000;
     private static final int PHONE_LOOKUP_ENTERPRISE = 4001;
@@ -1278,6 +1286,8 @@ public class ContactsProvider2 extends AbstractContactsProvider
         matcher.addURI(ContactsContract.AUTHORITY, "data/callables/#", CALLABLES_ID);
         matcher.addURI(ContactsContract.AUTHORITY, "data/callables/filter", CALLABLES_FILTER);
         matcher.addURI(ContactsContract.AUTHORITY, "data/callables/filter/*", CALLABLES_FILTER);
+        matcher.addURI(ContactsContract.AUTHORITY, "data/callables/contacts", CALLABLE_CONTACTS);
+        matcher.addURI(ContactsContract.AUTHORITY, "data/callables/contacts/*", CALLABLE_CONTACTS);
 
         matcher.addURI(ContactsContract.AUTHORITY, "data/contactables/", CONTACTABLES);
         matcher.addURI(ContactsContract.AUTHORITY, "data/contactables/filter", CONTACTABLES_FILTER);
@@ -5805,12 +5815,13 @@ public class ContactsProvider2 extends AbstractContactsProvider
                         DataColumns.MIMETYPE_ID + "=" + mDbHelper.get().getMimeTypeIdForPhone();
                 final String mimeTypeIsSipExpression =
                         DataColumns.MIMETYPE_ID + "=" + mDbHelper.get().getMimeTypeIdForSip();
-                final String mimeTypeIsSkypeExpression = DataColumns.MIMETYPE_ID + "="
-                        + mDbHelper.get().getMimeTypeId("vnd.android.cursor.item/com.skype.android.skypecall.action"); 
+
                 setTablesAndProjectionMapForData(qb, uri, projection, false);
                 if (match == CALLABLES) {
-                    qb.appendWhere(" AND ((" + mimeTypeIsPhoneExpression +
-                            ") OR (" + mimeTypeIsSipExpression + ") OR (" + mimeTypeIsSkypeExpression + "))");
+                    String appendWhere = " AND ((" + mimeTypeIsPhoneExpression + ") OR (" +
+                            mimeTypeIsSipExpression + ")" +
+                            appendMimeTypeQueryParameters(uri) + ")";
+                    qb.appendWhere(appendWhere);
                 } else {
                     qb.appendWhere(" AND " + mimeTypeIsPhoneExpression);
                 }
@@ -5829,6 +5840,26 @@ public class ContactsProvider2 extends AbstractContactsProvider
                     // This only slows down the query by 14% with 10,000 contacts.
                     addressBookIndexerCountExpression = "DISTINCT "
                             + RawContacts.CONTACT_ID + "||','||" + Data.DATA1;
+                }
+                break;
+            }
+            case CALLABLE_CONTACTS: {
+                final String mimeTypeIsPhoneExpression =
+                        DataColumns.MIMETYPE_ID + "=" + mDbHelper.get().getMimeTypeIdForPhone();
+                final String mimeTypeIsSipExpression =
+                        DataColumns.MIMETYPE_ID + "=" + mDbHelper.get().getMimeTypeIdForSip();
+
+                setTablesAndProjectionMapForData(qb, uri, projection, false);
+
+                String appendWhere = " AND ((" + mimeTypeIsPhoneExpression + ") OR (" +
+                        mimeTypeIsSipExpression + ")" +
+                        appendMimeTypeQueryParameters(uri) + ")";
+                qb.appendWhere(appendWhere);
+
+                final boolean removeDuplicates = readBooleanQueryParameter(
+                        uri, ContactsContract.REMOVE_DUPLICATE_ENTRIES, false);
+                if (removeDuplicates) {
+                    groupBy = RawContacts.CONTACT_ID;
                 }
                 break;
             }
@@ -5857,16 +5888,16 @@ public class ContactsProvider2 extends AbstractContactsProvider
                         DataColumns.MIMETYPE_ID + "=" + mDbHelper.get().getMimeTypeIdForPhone();
                 final String mimeTypeIsSipExpression =
                         DataColumns.MIMETYPE_ID + "=" + mDbHelper.get().getMimeTypeIdForSip();
-                final String mimeTypeIsSkypeExpression = DataColumns.MIMETYPE_ID + "="
-                        + mDbHelper.get().getMimeTypeId("vnd.android.cursor.item/com.skype.android.skypecall.action"); 
 
                 String typeParam = uri.getQueryParameter(DataUsageFeedback.USAGE_TYPE);
                 final int typeInt = getDataUsageFeedbackType(typeParam,
                         DataUsageStatColumns.USAGE_TYPE_INT_CALL);
                 setTablesAndProjectionMapForData(qb, uri, projection, true, typeInt);
                 if (match == CALLABLES_FILTER) {
-                    qb.appendWhere(" AND ((" + mimeTypeIsPhoneExpression +
-                            ") OR (" + mimeTypeIsSipExpression + ") OR (" + mimeTypeIsSkypeExpression + "))");
+                    String appendWhere = " AND ((" + mimeTypeIsPhoneExpression + ") OR (" +
+                            mimeTypeIsSipExpression + ")" +
+                            appendMimeTypeQueryParameters(uri) + ")";
+                    qb.appendWhere(appendWhere);
                 } else {
                     qb.appendWhere(" AND " + mimeTypeIsPhoneExpression);
                 }
@@ -6620,6 +6651,25 @@ public class ContactsProvider2 extends AbstractContactsProvider
         }
 
         return cursor;
+    }
+
+    private String appendMimeTypeQueryParameters(Uri uri) {
+        final String mimeTypesQueryParameter =
+                getQueryParameter(uri, ADDITIONAL_CALLABLE_MIMETYPES_PARAM_KEY);
+        String appendWhere = "";
+        if (!TextUtils.isEmpty(mimeTypesQueryParameter)) {
+            List<String> mimeTypesQueryParameterList =
+                    Arrays.asList(mimeTypesQueryParameter.split("\\s*,\\s*"));
+            if (mimeTypesQueryParameterList != null && !mimeTypesQueryParameterList.isEmpty()) {
+                // Parse URI
+                for (String mimeType : mimeTypesQueryParameterList) {
+                    long mimeTypeId = mDbHelper.get().getMimeTypeId(mimeType);
+                    String mimeTypeIsExpression = DataColumns.MIMETYPE_ID + "=" + mimeTypeId;
+                    appendWhere += " OR (" + mimeTypeIsExpression + ")";
+                }
+            }
+        }
+        return appendWhere;
     }
 
     // Rewrites query sort orders using SORT_KEY_{PRIMARY, ALTERNATIVE}
