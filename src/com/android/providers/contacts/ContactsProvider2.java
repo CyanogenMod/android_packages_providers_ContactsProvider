@@ -5860,6 +5860,12 @@ public class ContactsProvider2 extends AbstractContactsProvider
                         uri, ContactsContract.REMOVE_DUPLICATE_ENTRIES, false);
                 if (removeDuplicates) {
                     groupBy = RawContacts.CONTACT_ID;
+
+                    // In this case, because we dedupe phone numbers, the address book indexer needs
+                    // to take it into account too.  (Otherwise headers will appear in wrong
+                    // positions.)
+                    // So use count(distinct CONTACT_ID) instead of count(*).
+                    addressBookIndexerCountExpression = "DISTINCT " + RawContacts.CONTACT_ID;
                 }
                 break;
             }
