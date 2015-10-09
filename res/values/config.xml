@@ -17,4 +17,7 @@
 <resources>
     <!-- Default Contact -->
     <bool name="preference_default_contact_saved">false</bool>
+
+    <!-- request to attempt preload-ing contacts -->
+    <bool name="config_preload_contacts">false</bool>
 </resources>
