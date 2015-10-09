@@ -33,4 +33,7 @@
     <!-- If true, it supports fuzzy search for contacts number -->
     <bool name="phone_number_fuzzy_search">false</bool>
 
+    <!-- request to attempt preload-ing contacts -->
+    <bool name="config_preload_contacts">false</bool>
+
 </resources>

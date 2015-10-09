@@ -158,6 +158,7 @@ import com.android.providers.contacts.database.MoreDatabaseUtils;
 import com.android.providers.contacts.util.Clock;
 import com.android.providers.contacts.util.ContactsPermissions;
 import com.android.providers.contacts.util.DbQueryUtils;
+import com.android.providers.contacts.util.PreloadedContactsFileParser;
 import com.android.providers.contacts.util.NeededForTesting;
 import com.android.providers.contacts.util.UserUtils;
 import com.android.vcard.VCardComposer;
@@ -175,6 +176,7 @@ import java.io.File;
 import java.io.FileDescriptor;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
@@ -192,6 +194,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+
+import org.json.JSONException;
 
 /**
  * Contacts content provider. The contract between this provider and applications
@@ -240,11 +244,14 @@ public class ContactsProvider2 extends AbstractContactsProvider
     private static final int BACKGROUND_TASK_CHANGE_LOCALE = 9;
     private static final int BACKGROUND_TASK_CLEANUP_PHOTOS = 10;
     private static final int BACKGROUND_TASK_CLEAN_DELETE_LOG = 11;
+    private static final int BACKGROUND_TASK_ADD_DEFAULT_CONTACT = 12;
 
     protected static final int STATUS_NORMAL = 0;
     protected static final int STATUS_UPGRADING = 1;
     protected static final int STATUS_CHANGING_LOCALE = 2;
     protected static final int STATUS_NO_ACCOUNTS_NO_CONTACTS = 3;
+
+    private static final String PREF_PRELOADED_CONTACTS_ADDED = "preloaded_contacts_added";
 
     /** Default for the maximum number of returned aggregation suggestions. */
     private static final int DEFAULT_MAX_SUGGESTIONS = 5;
@@ -1565,6 +1572,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
         scheduleBackgroundTask(BACKGROUND_TASK_OPEN_WRITE_ACCESS);
         scheduleBackgroundTask(BACKGROUND_TASK_CLEANUP_PHOTOS);
         scheduleBackgroundTask(BACKGROUND_TASK_CLEAN_DELETE_LOG);
+        scheduleBackgroundTask(BACKGROUND_TASK_ADD_DEFAULT_CONTACT);
 
         return true;
     }
@@ -1804,7 +1812,51 @@ public class ContactsProvider2 extends AbstractContactsProvider
                 DeletedContactsTableUtil.deleteOldLogs(db);
                 break;
             }
+
+            case BACKGROUND_TASK_ADD_DEFAULT_CONTACT: {
+                if (shouldAttemptPreloadingContacts()) {
+                    try {
+                        InputStream inputStream = getContext().getResources().openRawResource(
+                                R.raw.preloaded_contacts);
+                        PreloadedContactsFileParser pcfp = new
+                                PreloadedContactsFileParser(inputStream);
+                        ArrayList<ContentProviderOperation> cpOperations = pcfp.parseForContacts();
+                        if (cpOperations == null) break;
+
+                        getContext().getContentResolver().applyBatch(ContactsContract.AUTHORITY,
+                                cpOperations);
+                        // persist the completion of the transaction
+                        onPreloadingContactsComplete();
+
+                    } catch (NotFoundException nfe) {
+                        System.out.println();
+                        nfe.printStackTrace();
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    } catch (RemoteException e) {
+                        e.printStackTrace();
+                    } catch (OperationApplicationException e) {
+                        e.printStackTrace();
+                    }
+                }
+
+                break;
+            }
+
         }
+    }
+
+    private boolean shouldAttemptPreloadingContacts() {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getContext());
+        return getContext().getResources().getBoolean(R.bool.config_preload_contacts) &&
+                !prefs.getBoolean(PREF_PRELOADED_CONTACTS_ADDED, false);
+    }
+
+    private void onPreloadingContactsComplete() {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getContext());
+        SharedPreferences.Editor editor = prefs.edit();
+        editor.putBoolean(PREF_PRELOADED_CONTACTS_ADDED, true);
+        editor.commit();
     }
 
     public void onLocaleChanged() {

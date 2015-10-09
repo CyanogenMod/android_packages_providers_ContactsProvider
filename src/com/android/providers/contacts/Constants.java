@@ -21,4 +21,7 @@ public class Constants {
     // Log tag for performance measurement.
     // To enable: adb shell setprop log.tag.ContactsPerf VERBOSE
     public static final String PERFORMANCE_TAG = "ContactsPerf";
+
+    // log info while preloading `default` contacts
+    public static final String TAG_DEBUG_PRELOAD_CONTACTS = "PreloadContacts";
 }
