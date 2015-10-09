@@ -1,0 +1,59 @@
+/*
+  This file encodes the contact information that must be preloaded into
+  the contacts database. The contact information is encoded according
+  to the schema outlined below.
+
+  The top-level object is an array of 'contacts'. Each of the array elements
+  is a contact with an array called 'data' defined within. Each of the objects
+  within 'data' objects describe an aspect of the contact - name, phone number,
+  address etc. Each aspect becomes a row in the raw_contacts table within
+  the contacts database. 
+
+  When describing a property for a contact aspect, the keys and values can
+  reference java fields. These fields will be resolved at runtime. This enables
+  us to leverage the fields defined in android.provider.ContactsContract.* classes
+  to describe the contact information.
+
+  Note that if any java fields are referenced, they must be fully qualified names
+  as seen from a ClassLoader's perspective. There is no validation done to ensure
+  that the fields names can be resolved till runtime.
+
+  Conveniences afforded while declaring contact information :
+    @ = android.provider.ContactsContract$CommonDataKinds
+    @mimetype = android.provider.ContactsContract$Data.MIMETYPE
+
+  Example :
+    {
+      "contacts": [
+        {
+          "data": [
+            {
+              "@mimetype": "{{@$StructuredName.CONTENT_ITEM_TYPE}}",
+              "@$StructuredName.DISPLAY_NAME": "John Doe"
+            },
+
+            {
+              "@mimetype": "{{@$Phone.CONTENT_ITEM_TYPE}}",
+              "@$Phone.NUMBER": "123-456-7890",
+              "@$Phone.TYPE": "{{@$Phone.TYPE_WORK}}"
+            }
+          ]
+        }
+      ]
+    }
+
+  Property values can be static values or expressions that need to be evaluated, like
+  the property keys. Values are interpolated when enclosed within
+  double-curly-braces - '{{' - akin to a templating system like Handlebars.
+
+  Limitations :
+    - currently, for property values, there is no provision to embed an 
+      expression-to-be-evaluated, within a larger string
+        ex. "{{com.example.foo.BAR}} additional content" isn't valid
+
+    - lack of compile time validation of the java fields specified or of the syntax
+
+    - lack of compile time validation of the property keys' with-respect-to the
+      columns of the raw_contacts table
+
+*/
