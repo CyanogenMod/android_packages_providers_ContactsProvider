@@ -1,4 +1,7 @@
 /*
+  This is the documentation for the file that can be created as
+  res/raw/preloaded_contacts.json .
+
   This file encodes the contact information that must be preloaded into
   the contacts database. The contact information is encoded according
   to the schema outlined below.
