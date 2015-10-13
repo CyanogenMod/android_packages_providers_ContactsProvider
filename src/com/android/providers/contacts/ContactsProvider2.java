@@ -36,6 +36,8 @@ import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.ProviderInfo;
 import android.content.res.AssetFileDescriptor;
+import android.content.res.AssetManager;
+import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.content.res.Resources.NotFoundException;
 import android.database.AbstractCursor;
@@ -107,6 +109,7 @@ import android.provider.SyncStateContract;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.TelephonyManager;
 import android.text.TextUtils;
+import android.util.DisplayMetrics;
 import android.util.Log;
 
 import com.android.common.content.ProjectionMap;
@@ -1921,14 +1924,16 @@ public class ContactsProvider2 extends AbstractContactsProvider
                 }
 
                 // TODO : merge the `preloaded contacts` and `default contact`(^) constructs
-                if (shouldAttemptPreloadingContacts()) {
+                Resources res = getRegionLockedResources();
+                if (res != null && shouldAttemptPreloadingContacts(res)) {
                     try {
-                        InputStream inputStream = getContext().getResources().openRawResource(
-                                R.raw.preloaded_contacts);
+                        InputStream inputStream = res.openRawResource(R.raw.preloaded_contacts);
                         PreloadedContactsFileParser pcfp = new
                                 PreloadedContactsFileParser(inputStream);
                         ArrayList<ContentProviderOperation> cpOperations = pcfp.parseForContacts();
-                        if (cpOperations == null) break;
+                        if (cpOperations == null) {
+                            break;
+                        }
 
                         getContext().getContentResolver().applyBatch(ContactsContract.AUTHORITY,
                                 cpOperations);
@@ -1952,9 +1957,34 @@ public class ContactsProvider2 extends AbstractContactsProvider
         }
     }
 
-    private boolean shouldAttemptPreloadingContacts() {
+    private Resources getRegionLockedResources() {
+        Configuration tempConfiguration = new Configuration();
+        String mcc = SystemProperties.get("ro.prebundled.mcc");
+        Resources regionResources = null;
+        String publicSourceDir = null;
+        try {
+            Context ctx = getContext();
+            String packageName = ctx.getPackageName();
+            publicSourceDir = ctx.getPackageManager().getApplicationInfo(packageName, 0)
+                    .publicSourceDir;
+        } catch (NameNotFoundException e) {
+            e.printStackTrace();
+        }
+
+        if (!TextUtils.isEmpty(mcc) && !TextUtils.isEmpty(publicSourceDir)) {
+            tempConfiguration.mcc = Integer.parseInt(mcc);
+            AssetManager assetManager = new AssetManager();
+            assetManager.addAssetPath(publicSourceDir);
+            regionResources = new Resources(assetManager, new DisplayMetrics(),
+                    tempConfiguration);
+        }
+
+        return regionResources;
+    }
+
+    private boolean shouldAttemptPreloadingContacts(Resources res) {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getContext());
-        return getContext().getResources().getBoolean(R.bool.config_preload_contacts) &&
+        return res.getBoolean(R.bool.config_preload_contacts) &&
                 !prefs.getBoolean(PREF_PRELOADED_CONTACTS_ADDED, false);
     }
 
