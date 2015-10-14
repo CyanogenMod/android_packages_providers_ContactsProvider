@@ -5541,12 +5541,17 @@ public class ContactsProvider2 extends AbstractContactsProvider
                             mDbHelper.get().getMimeTypeId(Phone.CONTENT_ITEM_TYPE);
                     final long sipMimeTypeId =
                             mDbHelper.get().getMimeTypeId(SipAddress.CONTENT_ITEM_TYPE);
+                    final String additionalCallableMimeTypes = getCallableMimeTypesFromUri(uri);
+                    String mimeTypeIdClauses = phoneMimeTypeId + ", " + sipMimeTypeId;
+                    if (!TextUtils.isEmpty(additionalCallableMimeTypes)) {
+                        mimeTypeIdClauses += ", " + additionalCallableMimeTypes;
+                    }
 
                     qb.appendWhere(DbQueryUtils.concatenateClauses(
                             selection,
                                 "(" + Contacts.STARRED + "=1",
                                 DataColumns.MIMETYPE_ID + " IN (" +
-                            phoneMimeTypeId + ", " + sipMimeTypeId + ")) AND (" +
+                            mimeTypeIdClauses + ")) AND (" +
                             RawContacts.CONTACT_ID + " IN " + Tables.DEFAULT_DIRECTORY + ")"));
                     starredInnerQuery = qb.buildQuery(subProjection, null, null,
                         null, Data.IS_SUPER_PRIMARY + " DESC," + SORT_BY_DATA_USAGE, null);
@@ -5575,7 +5580,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
                             selection,
                             "(" + Contacts.STARRED + "=0 OR " + Contacts.STARRED + " IS NULL",
                             DataColumns.MIMETYPE_ID + " IN (" +
-                            phoneMimeTypeId + ", " + sipMimeTypeId + ")) AND (" +
+                            mimeTypeIdClauses + ")) AND (" +
                             RawContacts.CONTACT_ID + " IN " + Tables.DEFAULT_DIRECTORY + ")"));
                     frequentInnerQuery = qb.buildQuery(subProjection, null, null, null,
                             SORT_BY_DATA_USAGE, "25");
@@ -6662,7 +6667,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
     private String appendMimeTypeQueryParameters(Uri uri) {
         final String mimeTypesQueryParameter =
                 getQueryParameter(uri, ADDITIONAL_CALLABLE_MIMETYPES_PARAM_KEY);
-        String appendWhere = "";
+        StringBuilder appendWhere = new StringBuilder();
         if (!TextUtils.isEmpty(mimeTypesQueryParameter)) {
             List<String> mimeTypesQueryParameterList =
                     Arrays.asList(mimeTypesQueryParameter.split("\\s*,\\s*"));
@@ -6671,11 +6676,31 @@ public class ContactsProvider2 extends AbstractContactsProvider
                 for (String mimeType : mimeTypesQueryParameterList) {
                     long mimeTypeId = mDbHelper.get().getMimeTypeId(mimeType);
                     String mimeTypeIsExpression = DataColumns.MIMETYPE_ID + "=" + mimeTypeId;
-                    appendWhere += " OR (" + mimeTypeIsExpression + ")";
+                    appendWhere.append(" OR (" + mimeTypeIsExpression + ")");
                 }
             }
         }
-        return appendWhere;
+        return appendWhere.toString();
+    }
+
+    private String getCallableMimeTypesFromUri(Uri uri) {
+        final String mimeTypesQueryParameter =
+                getQueryParameter(uri, ADDITIONAL_CALLABLE_MIMETYPES_PARAM_KEY);
+        StringBuilder mimeTypeIds = new StringBuilder();
+        if (!TextUtils.isEmpty(mimeTypesQueryParameter)) {
+            List<String> mimeTypesQueryParameterList =
+                    Arrays.asList(mimeTypesQueryParameter.split("\\s*,\\s*"));
+            if (mimeTypesQueryParameterList != null && !mimeTypesQueryParameterList.isEmpty()) {
+                // Parse URI
+                for (String mimeType : mimeTypesQueryParameterList) {
+                    if (!TextUtils.isEmpty(mimeTypeIds.toString())) {
+                        mimeTypeIds.append(", ");
+                    }
+                    mimeTypeIds.append(mDbHelper.get().getMimeTypeId(mimeType));
+                }
+            }
+        }
+        return mimeTypeIds.toString();
     }
 
     // Rewrites query sort orders using SORT_KEY_{PRIMARY, ALTERNATIVE}
