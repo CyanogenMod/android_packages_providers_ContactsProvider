@@ -5253,6 +5253,12 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
         qb.appendWhere(sb.toString());
     }
 
+    public void buildDataLookupAndContactQuery(SQLiteQueryBuilder qb, String data) {
+        StringBuilder sb = new StringBuilder();
+        buildDataQuery(sb, data);
+        qb.setTables(sb.toString());
+    }
+
     /**
      * Phone lookup method that uses the custom SQLite function phone_number_compare_loose
      * that serves as a fallback in case the regular lookup does not return any results.
@@ -5327,6 +5333,13 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
                 + PhoneLookupColumns.MIN_MATCH + " = '");
         sb.append(minMatch);
         sb.append("')) AS lookup, " + Tables.DATA);
+    }
+
+    private void buildDataQuery(StringBuilder sb, String lookupData) {
+        // Todo: make more performant
+        sb.append(Tables.RAW_CONTACTS +
+                " JOIN " + Views.DATA + " data_view ON (data_view.raw_contact_id = "
+                + Tables.RAW_CONTACTS  + ".contact_id) WHERE data1 = '" + lookupData + "'");
     }
 
     private void appendPhoneLookupSelection(StringBuilder sb, String number, String numberE164) {

@@ -6382,22 +6382,33 @@ public class ContactsProvider2 extends AbstractContactsProvider
 
                     String number =
                             uri.getPathSegments().size() > 1 ? uri.getLastPathSegment() : "";
-                    String numberE164 = PhoneNumberUtils.formatNumberToE164(
-                            number, mDbHelper.get().getCurrentCountryIso());
-                    String normalizedNumber = PhoneNumberUtils.normalizeNumber(number);
-                    mDbHelper.get().buildPhoneLookupAndContactQuery(
-                            qb, normalizedNumber, numberE164);
-                    qb.setProjectionMap(sPhoneLookupProjectionMap);
 
-                    // removeNonStarMatchesFromCursor() requires the cursor to contain
-                    // PhoneLookup.NUMBER. Therefore, if the projection explicitly omits it, extend
-                    // the projection.
-                    String[] projectionWithNumber = projection;
-                    if (projection != null
-                            && !ArrayUtils.contains(projection,PhoneLookup.NUMBER)) {
-                        projectionWithNumber = ArrayUtils.appendElement(
-                                String.class, projection, PhoneLookup.NUMBER);
+                    boolean isPhoneNumber = isPhoneNumber(number);
+
+                    String[] projectionWithNumber;
+                    if (isPhoneNumber) {
+                        String numberE164 = PhoneNumberUtils.formatNumberToE164(
+                                number, mDbHelper.get().getCurrentCountryIso());
+                        String normalizedNumber = PhoneNumberUtils.normalizeNumber(number);
+                        mDbHelper.get().buildPhoneLookupAndContactQuery(
+                                qb, normalizedNumber, numberE164);
+                        qb.setProjectionMap(sPhoneLookupProjectionMap);
+
+                        // removeNonStarMatchesFromCursor() requires the cursor to contain
+                        // PhoneLookup.NUMBER. Therefore, if the projection explicitly omits it, extend
+                        // the projection.
+                        projectionWithNumber = projection;
+                        if (projection != null
+                                && !ArrayUtils.contains(projection,PhoneLookup.NUMBER)) {
+                            projectionWithNumber = ArrayUtils.appendElement(
+                                    String.class, projection, PhoneLookup.NUMBER);
+                        }
+                    } else {
+                        mDbHelper.get().buildDataLookupAndContactQuery(qb, number);
+                        projectionWithNumber = new String[0];
+                        sortOrder = null;
                     }
+
 
                     // Peek at the results of the first query (which attempts to use fully
                     // normalized and internationalized numbers for comparison).  If no results
@@ -6410,8 +6421,12 @@ public class ContactsProvider2 extends AbstractContactsProvider
                     try {
                         if (cursor.getCount() > 0) {
                             foundResult = true;
-                            return PhoneLookupWithStarPrefix
-                                    .removeNonStarMatchesFromCursor(number, cursor);
+                            if (isPhoneNumber) {
+                                return PhoneLookupWithStarPrefix
+                                        .removeNonStarMatchesFromCursor(number, cursor);
+                            } else {
+                                return cursor;
+                            }
                         }
 
                         // Use the fall-back lookup method.
