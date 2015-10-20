@@ -302,6 +302,10 @@ public class ContactsProvider2 extends AbstractContactsProvider
             + Contacts.DISPLAY_NAME + " COLLATE LOCALIZED ASC";
     private static String WITHOUT_SIM_FLAG  = "no_sim";
 
+    private boolean isWhereAppended = false;
+
+    public static final String ADD_GROUP_MEMBERS = "add_group_members";
+
     private static final int CONTACTS = 1000;
     private static final int CONTACTS_ID = 1001;
     private static final int CONTACTS_LOOKUP = 1002;
@@ -532,6 +536,22 @@ public class ContactsProvider2 extends AbstractContactsProvider
                                     + "(SELECT " + Tables.GROUPS + "." + Groups._ID
                                     + " FROM " + Tables.GROUPS
                                     + " WHERE " + Groups.TITLE + "=?)))";
+
+    private static final String CONTACTS_IN_GROUP_ID_SELECT =
+            Contacts._ID + " IN "
+                    + "(SELECT DISTINCT "
+                    + Data.CONTACT_ID
+                    + " FROM " + Views.DATA
+                    + " WHERE " + Data.MIMETYPE + " = '" + GroupMembership.CONTENT_ITEM_TYPE
+                    + "' AND " + Data.DATA1 + " = ?)";
+
+    private static final String CONTACTS_NOT_IN_GROUP_ID_SELECT =
+            Contacts._ID + " NOT IN "
+                    + "(SELECT DISTINCT "
+                    + Data.CONTACT_ID
+                    + " FROM " + Views.DATA
+                    + " WHERE " + Data.MIMETYPE + " = '" + GroupMembership.CONTENT_ITEM_TYPE
+                    + "' AND " + Data.DATA1 + " = ?)";
 
     /** Sql for updating DIRTY flag on multiple raw contacts */
     private static final String UPDATE_RAW_CONTACT_SET_DIRTY_SQL =
@@ -1207,6 +1227,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
         matcher.addURI(ContactsContract.AUTHORITY, "contacts/strequent/", CONTACTS_STREQUENT);
         matcher.addURI(ContactsContract.AUTHORITY, "contacts/strequent/filter/*",
                 CONTACTS_STREQUENT_FILTER);
+        matcher.addURI(ContactsContract.AUTHORITY, "contacts/group", CONTACTS_GROUP);
         matcher.addURI(ContactsContract.AUTHORITY, "contacts/group/*", CONTACTS_GROUP);
         matcher.addURI(ContactsContract.AUTHORITY, "contacts/frequent", CONTACTS_FREQUENT);
         matcher.addURI(ContactsContract.AUTHORITY, "contacts/delete_usage", CONTACTS_DELETE_USAGE);
@@ -1455,6 +1476,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
     private Handler mBackgroundHandler;
 
     private long mLastPhotoCleanup = 0;
+    private boolean isPhoneNumberFuzzySearchEnabled;
 
     private FastScrollingIndexCache mFastScrollingIndexCache;
 
@@ -1528,6 +1550,8 @@ public class ContactsProvider2 extends AbstractContactsProvider
         profileInfo.authority = ContactsContract.AUTHORITY;
         mProfileProvider.attachInfo(getContext(), profileInfo);
         mProfileHelper = mProfileProvider.getDatabaseHelper(getContext());
+        isPhoneNumberFuzzySearchEnabled = getContext().getResources().getBoolean(
+                R.bool.phone_number_fuzzy_search);
 
         // Initialize the pre-authorized URI duration.
         mPreAuthorizedUriDuration = DEFAULT_PREAUTHORIZED_URI_EXPIRATION;
@@ -5354,13 +5378,43 @@ public class ContactsProvider2 extends AbstractContactsProvider
                     filterParam = uri.getLastPathSegment();
                 }
 
-                // If the query consists of a single word, we can do snippetizing after-the-fact for
-                // a performance boost.  Otherwise, we can't defer.
+                // If the query consists of a single word, we can do snippetizing
+                // after-the-fact for a performance boost. Otherwise, we can't defer.
                 snippetDeferred = isSingleWordQuery(filterParam)
                     && deferredSnipRequested && snippetNeeded(projection);
                 setTablesAndProjectionMapForContactsWithSnippet(
                         qb, uri, projection, filterParam, directoryId,
                         snippetDeferred);
+                long groupId = -1;
+                try {
+                    groupId = Long.parseLong(uri.getQueryParameter(Groups._ID));
+                } catch (Exception exception) {
+                    groupId = -1;
+                }
+                if (groupId != -1) {
+                    StringBuilder groupBuilder = new StringBuilder();
+                    if (uri.getBooleanQueryParameter(ADD_GROUP_MEMBERS, false)) {
+                        // filter all the contacts that are NOT assigned to the
+                        // group whose id is 'groupId'
+                        groupBuilder.append(Contacts._ID + " NOT IN (" + " SELECT DISTINCT "
+                                + Data.CONTACT_ID
+                                + " FROM " + Views.DATA + " WHERE " + Data.MIMETYPE + " = '"
+                                + GroupMembership.CONTENT_ITEM_TYPE + "' AND " + Data.DATA1
+                                + " = " + groupId + ")");
+                    } else {
+                        // filter all the contacts that are assigned to the
+                        // group whose id is 'groupId'
+                        groupBuilder.append(Contacts._ID + " IN (" + " SELECT DISTINCT "
+                                + Data.CONTACT_ID
+                                + " FROM " + Views.DATA + " WHERE " + Data.MIMETYPE + " = '"
+                                + GroupMembership.CONTENT_ITEM_TYPE + "' AND " + Data.DATA1
+                                + " = " + groupId + ")");
+                    }
+                    if (isWhereAppended) {
+                        qb.appendWhere(" AND ");
+                    }
+                    qb.appendWhere(groupBuilder.toString());
+                }
                 break;
             }
 
@@ -5542,7 +5596,23 @@ public class ContactsProvider2 extends AbstractContactsProvider
 
             case CONTACTS_GROUP: {
                 setTablesAndProjectionMapForContacts(qb, projection);
-                if (uri.getPathSegments().size() > 2) {
+                appendLocalDirectoryAndAccountSelectionIfNeeded(qb, directoryId, uri);
+                long groupId = -1;
+                try {
+                    groupId = Long.parseLong(uri.getQueryParameter(Groups._ID));
+                } catch (Exception exception) {
+                    groupId = -1;
+                }
+                if (groupId != -1) {
+                    qb.appendWhere(" AND ");
+                    if (uri.getBooleanQueryParameter(ADD_GROUP_MEMBERS, false)) {
+                        qb.appendWhere(CONTACTS_NOT_IN_GROUP_ID_SELECT);
+                    } else {
+                        qb.appendWhere(CONTACTS_IN_GROUP_ID_SELECT);
+                    }
+                    selectionArgs = insertSelectionArg(selectionArgs, String.valueOf(groupId));
+                } else if (uri.getPathSegments().size() > 2) {
+                    qb.appendWhere(" AND ");
                     qb.appendWhere(CONTACTS_IN_GROUP_SELECT);
                     String groupMimeTypeId = String.valueOf(
                             mDbHelper.get().getMimeTypeId(GroupMembership.CONTENT_ITEM_TYPE));
@@ -7323,6 +7393,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
     private void setTablesAndProjectionMapForContactsWithSnippet(SQLiteQueryBuilder qb, Uri uri,
             String[] projection, String filter, long directoryId, boolean deferSnippeting) {
 
+        isWhereAppended = false;
         StringBuilder sb = new StringBuilder();
         sb.append(Views.CONTACTS);
 
@@ -7373,6 +7444,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
         if (!TextUtils.isEmpty(sbWhere.toString())) {
             if ("true".equals(withoutSim)) {
                 qb.appendWhere(sbWhere.toString());
+                isWhereAppended = true;
             } else {
                 sb.append(sbWhere.toString());
             }
@@ -7414,11 +7486,228 @@ public class ContactsProvider2 extends AbstractContactsProvider
             int maxTokens = args != null && args.length > 3 ? Integer.parseInt(args[3])
                     : DEFAULT_SNIPPET_ARG_MAX_TOKENS;
 
-            appendSearchIndexJoin(
-                    sb, filter, true, startMatch, endMatch, ellipsis, maxTokens, deferSnippeting);
+            if (isPhoneNumberFuzzySearchEnabled) {
+                appendSearchIndexJoinForFuzzySearch(sb, filter, true,
+                        startMatch, endMatch, ellipsis, maxTokens, deferSnippeting);
+            } else {
+                appendSearchIndexJoin(sb, filter, true, startMatch, endMatch,
+                        ellipsis, maxTokens, deferSnippeting);
+            }
         } else {
-            appendSearchIndexJoin(sb, filter, false, null, null, null, 0, false);
+            if (isPhoneNumberFuzzySearchEnabled) {
+                appendSearchIndexJoinForFuzzySearch(sb, filter, false, null,
+                        null, null, 0, false);
+            } else {
+                appendSearchIndexJoin(sb, filter, false, null, null, null, 0,
+                        false);
+            }
         }
+    }
+
+    public void appendSearchIndexJoinForFuzzySearch(StringBuilder sb, String filter,
+            boolean snippetNeeded, String startMatch, String endMatch, String ellipsis,
+            int maxTokens, boolean deferSnippeting) {
+        boolean isEmailAddress = false;
+        String emailAddress = null;
+        boolean isPhoneNumber = false;
+        String phoneNumber = null;
+        String numberE164 = null;
+
+
+        if (filter.indexOf('@') != -1) {
+            emailAddress = mDbHelper.get().extractAddressFromEmailAddress(filter);
+            isEmailAddress = !TextUtils.isEmpty(emailAddress);
+        } else {
+            isPhoneNumber = isPhoneNumber(filter);
+            if (isPhoneNumber) {
+                phoneNumber = PhoneNumberUtils.normalizeNumber(filter);
+                numberE164 = PhoneNumberUtils.formatNumberToE164(phoneNumber,
+                        mDbHelper.get().getCurrentCountryIso());
+            }
+        }
+
+        final String SNIPPET_CONTACT_ID = "snippet_contact_id";
+        sb.append(" JOIN (SELECT " + SearchIndexColumns.CONTACT_ID + " AS " + SNIPPET_CONTACT_ID);
+        if (snippetNeeded) {
+            sb.append(", ");
+            if (isEmailAddress) {
+                sb.append("ifnull(");
+                if (!deferSnippeting) {
+                    // Add the snippet marker only when we're really creating snippet.
+                    DatabaseUtils.appendEscapedSQLString(sb, startMatch);
+                    sb.append("||");
+                }
+                sb.append("(SELECT MIN(" + Email.ADDRESS + ")");
+                sb.append(" FROM " + Tables.DATA_JOIN_RAW_CONTACTS);
+                sb.append(" WHERE  " + Tables.SEARCH_INDEX + "." + SearchIndexColumns.CONTACT_ID);
+                sb.append("=" + RawContacts.CONTACT_ID + " AND " + Email.ADDRESS + " LIKE ");
+                DatabaseUtils.appendEscapedSQLString(sb, filter + "%");
+                sb.append(")");
+                if (!deferSnippeting) {
+                    sb.append("||");
+                    DatabaseUtils.appendEscapedSQLString(sb, endMatch);
+                }
+                sb.append(",");
+
+                if (deferSnippeting) {
+                    sb.append(SearchIndexColumns.CONTENT);
+                } else {
+                    appendSnippetFunction(sb, startMatch, endMatch, ellipsis, maxTokens);
+                }
+                sb.append(")");
+            } else if (isPhoneNumber) {
+                sb.append("ifnull(");
+                if (!deferSnippeting) {
+                    // Add the snippet marker only when we're really creating snippet.
+                    DatabaseUtils.appendEscapedSQLString(sb, startMatch);
+                    sb.append("||");
+                }
+                sb.append("(SELECT MIN(" + Phone.NUMBER + ")");
+                sb.append(" FROM " +
+                        Tables.DATA_JOIN_RAW_CONTACTS + " JOIN " + Tables.PHONE_LOOKUP);
+                sb.append(" ON " + DataColumns.CONCRETE_ID);
+                sb.append("=" + Tables.PHONE_LOOKUP + "." + PhoneLookupColumns.DATA_ID);
+                sb.append(" WHERE  " + Tables.SEARCH_INDEX + "." + SearchIndexColumns.CONTACT_ID);
+                sb.append("=" + RawContacts.CONTACT_ID);
+                sb.append(" AND (" + PhoneLookupColumns.NORMALIZED_NUMBER + " LIKE '%");
+                sb.append(phoneNumber);
+                sb.append("%'");
+                sb.append("))");
+                if (! deferSnippeting) {
+                    sb.append("||");
+                    DatabaseUtils.appendEscapedSQLString(sb, endMatch);
+                }
+                sb.append(",");
+
+                if (deferSnippeting) {
+                    sb.append(SearchIndexColumns.CONTENT);
+                } else {
+                    appendSnippetFunction(sb, startMatch, endMatch, ellipsis, maxTokens);
+                }
+                sb.append(")");
+            } else {
+                final String normalizedFilter = NameNormalizer.normalize(filter);
+                if (!TextUtils.isEmpty(normalizedFilter)) {
+                    if (deferSnippeting) {
+                        sb.append(SearchIndexColumns.CONTENT);
+                    } else {
+                        sb.append("(CASE WHEN EXISTS (SELECT 1 FROM ");
+                        sb.append(Tables.RAW_CONTACTS + " AS rc INNER JOIN ");
+                        sb.append(Tables.NAME_LOOKUP + " AS nl ON (rc." + RawContacts._ID);
+                        sb.append("=nl." + NameLookupColumns.RAW_CONTACT_ID);
+                        sb.append(") WHERE nl." + NameLookupColumns.NORMALIZED_NAME);
+                        sb.append(" GLOB '" + normalizedFilter + "*' AND ");
+                        sb.append("nl." + NameLookupColumns.NAME_TYPE + "=");
+                        sb.append(NameLookupType.NAME_COLLATION_KEY + " AND ");
+                        sb.append(Tables.SEARCH_INDEX + "." + SearchIndexColumns.CONTACT_ID);
+                        sb.append("=rc." + RawContacts.CONTACT_ID);
+                        sb.append(") THEN NULL ELSE ");
+                        appendSnippetFunction(sb, startMatch, endMatch, ellipsis, maxTokens);
+                        sb.append(" END)");
+                    }
+                } else {
+                    sb.append("NULL");
+                }
+            }
+            sb.append(" AS " + SearchSnippets.SNIPPET);
+        }
+
+        sb.append(" FROM " + Tables.SEARCH_INDEX);
+        sb.append(" WHERE ");
+        if (isPhoneNumber) {
+            sb.append(Tables.SEARCH_INDEX + " MATCH '");
+            // normalized version of the phone number (phoneNumber can only have
+            // + and digits)
+            final String phoneNumberCriteria = " OR tokens:" + phoneNumber
+                    + "*";
+
+            // international version of this number (numberE164 can only have +
+            // and digits)
+            final String numberE164Criteria = (numberE164 != null && !TextUtils
+                    .equals(numberE164, phoneNumber)) ? " OR tokens:"
+                    + numberE164 + "*" : "";
+
+            // combine all criteria
+            final String commonCriteria = phoneNumberCriteria
+                    + numberE164Criteria;
+
+            // search in content
+            sb.append(SearchIndexManager.getFtsMatchQuery(filter,
+                    FtsQueryBuilder.getDigitsQueryBuilder(commonCriteria)));
+            sb.append("' AND " + SNIPPET_CONTACT_ID + " IN "
+                    + Tables.DEFAULT_DIRECTORY);
+            if (snippetNeeded) {
+            // only support fuzzy search when there is snippet column and
+            // the filter is phone number!
+                sb.append(" UNION SELECT " + SearchIndexColumns.CONTACT_ID + " AS " +
+                        SNIPPET_CONTACT_ID);
+                sb.append(", ");
+                if (!deferSnippeting) {
+                    // Add the snippet marker only when we're really creating snippet.
+                    DatabaseUtils.appendEscapedSQLString(sb, startMatch);
+                    sb.append("||");
+                }
+                sb.append("(SELECT MIN(" + Phone.NUMBER + ")");
+                sb.append(" FROM " +
+                        Tables.DATA_JOIN_RAW_CONTACTS + " JOIN " + Tables.PHONE_LOOKUP);
+                sb.append(" ON " + DataColumns.CONCRETE_ID);
+                sb.append("=" + Tables.PHONE_LOOKUP + "." + PhoneLookupColumns.DATA_ID);
+                sb.append(" WHERE  " + Tables.SEARCH_INDEX + "." + SearchIndexColumns.CONTACT_ID);
+                sb.append("=" + RawContacts.CONTACT_ID);
+                sb.append(" AND (" + PhoneLookupColumns.NORMALIZED_NUMBER + " LIKE '%");
+                sb.append(phoneNumber);
+                sb.append("%'");
+                sb.append("))");
+                if (!deferSnippeting) {
+                    sb.append("||");
+                    DatabaseUtils.appendEscapedSQLString(sb, endMatch);
+                }
+                sb.append(" AS " + SearchSnippets.SNIPPET);
+                sb.append(" FROM " + Tables.SEARCH_INDEX);
+                sb.append(" WHERE " + SearchSnippets.SNIPPET + " IS NOT NULL ");
+                sb.append(" AND " + SNIPPET_CONTACT_ID + " IN " + Tables.DEFAULT_DIRECTORY + ")");
+            } else {
+                sb.append(")");
+            }
+        } else {
+            sb.append(Tables.SEARCH_INDEX + " MATCH '");
+            if (isEmailAddress) {
+                // we know that the emailAddress contains a @. This phrase search should be
+                // scoped against "content:" only, but unfortunately SQLite doesn't support
+                // phrases and scoped columns at once. This is fine in this case however, because:
+                // We can't erroneously match against name, as it is all-hex (so the @ can't match)
+                // We can't match against tokens, because phone-numbers can't contain @
+                final String sanitizedEmailAddress =
+                        emailAddress == null ? "" : sanitizeMatch(emailAddress);
+                sb.append("\"");
+                sb.append(sanitizedEmailAddress);
+                sb.append("*\"");
+            } else if (isPhoneNumber) {
+                // normalized version of the phone number (phoneNumber can only have + and digits)
+                final String phoneNumberCriteria = " OR tokens:" + phoneNumber + "*";
+
+            // international version of this number (numberE164 can only have + and digits)
+            final String numberE164Criteria =
+                    (numberE164 != null && !TextUtils.equals(numberE164, phoneNumber))
+                    ? " OR tokens:" + numberE164 + "*"
+                    : "";
+
+            // combine all criteria
+            final String commonCriteria =
+                    phoneNumberCriteria + numberE164Criteria;
+
+            // search in content
+            sb.append(SearchIndexManager.getFtsMatchQuery(filter,
+                    FtsQueryBuilder.getDigitsQueryBuilder(commonCriteria)));
+        } else {
+            // general case: not a phone number, not an email-address
+            sb.append(SearchIndexManager.getFtsMatchQuery(filter,
+                    FtsQueryBuilder.SCOPED_NAME_NORMALIZING));
+        }
+        // Omit results in "Other Contacts".
+            sb.append("' AND " + SNIPPET_CONTACT_ID + " IN " + Tables.DEFAULT_DIRECTORY + ")");
+        }
+        sb.append(" ON (" + Contacts._ID + "=" + SNIPPET_CONTACT_ID + ")");
     }
 
     public void appendSearchIndexJoin(StringBuilder sb, String filter,
