@@ -31,6 +31,6 @@
 <resources>
 
     <!-- If true, it supports fuzzy search for contacts number -->
-    <bool name="phone_number_fuzzy_search">true</bool>
+    <bool name="phone_number_fuzzy_search">false</bool>
 
 </resources>
