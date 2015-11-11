@@ -5339,7 +5339,8 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
         // Todo: make more performant
         sb.append(Tables.RAW_CONTACTS +
                 " JOIN " + Views.DATA + " data_view ON (data_view.raw_contact_id = "
-                + Tables.RAW_CONTACTS  + ".contact_id) WHERE data1 = '" + lookupData + "'");
+                + Tables.RAW_CONTACTS  + "._id) WHERE data1 = ");
+        DatabaseUtils.appendEscapedSQLString(sb, lookupData);
     }
 
     private void appendPhoneLookupSelection(StringBuilder sb, String number, String numberE164) {
