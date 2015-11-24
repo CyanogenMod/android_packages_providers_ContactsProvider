@@ -268,7 +268,7 @@ public class CallLogProvider extends ContentProvider {
                 if (!TextUtils.isEmpty(pluginName)) {
                     qb.appendWhere(CallLogConstants.PLUGIN_PACKAGE_NAME + " == ");
                     qb.appendWhereEscapeString(pluginName);
-                    if (pathSegments.size() >= PACKAGE_USER_NAME_PATH) {
+                    if (pathSegments.size() - 1 >= PACKAGE_USER_NAME_PATH) {
                         String pluginUserName =  pathSegments.get(PACKAGE_USER_NAME_PATH);
                         if (!TextUtils.isEmpty(pluginUserName)) {
                             qb.appendWhere(" AND " + CallLogConstants.PLUGIN_USER_HANDLE + " == ");
