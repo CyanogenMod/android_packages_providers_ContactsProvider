@@ -121,7 +121,7 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
      *   1000-1099 M
      * </pre>
      */
-    static final int DATABASE_VERSION = 1011;
+    static final int DATABASE_VERSION = 1012;
 
     public interface Tables {
         public static final String CONTACTS = "contacts";
@@ -583,6 +583,10 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
     public interface PresenceColumns {
         String RAW_CONTACT_ID = "presence_raw_contact_id";
         String CONTACT_ID = "presence_contact_id";
+    }
+
+    public interface CallColumns {
+        String ORIGIN = "origin";
     }
 
     public interface AggregatedPresenceColumns {
@@ -1527,6 +1531,7 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
                 Calls.CACHED_PHOTO_ID + " INTEGER NOT NULL DEFAULT 0," +
                 Calls.CACHED_PHOTO_URI + " TEXT," +
                 Calls.CACHED_FORMATTED_NUMBER + " TEXT," +
+                CallColumns.ORIGIN + " TEXT," +
                 Voicemails._DATA + " TEXT," +
                 Voicemails.HAS_CONTENT + " INTEGER," +
                 Voicemails.MIME_TYPE + " TEXT," +
@@ -2913,6 +2918,11 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
             rebuildSqliteStats = true;
             upgradeViewsAndTriggers = true;
             oldVersion = 1011;
+        }
+
+        if (oldVersion < 1012) {
+            upgradeToVersion1012(db);
+            oldVersion = 1012;
         }
 
         if (upgradeViewsAndTriggers) {
@@ -4462,6 +4472,12 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
 
     public void upgradeToVersion1010(SQLiteDatabase db) {
         db.execSQL("DROP TABLE IF EXISTS metadata_sync");
+    }
+
+    // Add origin column to record where a call came from via the origin extra.
+    private void upgradeToVersion1012(SQLiteDatabase db) {
+        db.execSQL("ALTER TABLE " + Tables.CALLS + " ADD " + CallColumns.ORIGIN
+                + " TEXT DEFAULT NULL;");
     }
 
     public String extractHandleFromEmailAddress(String email) {
