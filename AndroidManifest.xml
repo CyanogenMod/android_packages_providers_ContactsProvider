@@ -21,7 +21,7 @@
             android:protectionLevel="signature|system"/>
 
     <uses-sdk android:minSdkVersion="21"
-        android:targetSdkVersion="22" />
+        android:targetSdkVersion="23" />
 
     <application android:process="android.process.acore"
         android:label="@string/app_label"
