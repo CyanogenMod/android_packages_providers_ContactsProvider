@@ -1723,6 +1723,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
                 initForDefaultLocale();
                 mReadAccessLatch.countDown();
                 mReadAccessLatch = null;
+                updateDirectoriesInBackground(true);
                 break;
             }
 
