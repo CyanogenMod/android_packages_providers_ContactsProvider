@@ -1,0 +1,5 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+        package="com.android.providers.contacts">
+
+    <uses-permission android:name="com.android.contacts.incall.METRICS_PERMISSION" />
+</manifest>

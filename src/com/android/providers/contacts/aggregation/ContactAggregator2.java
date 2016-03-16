@@ -19,6 +19,8 @@ package com.android.providers.contacts.aggregation;
 import static com.android.providers.contacts.aggregation.util.RawContactMatcher.SCORE_THRESHOLD_PRIMARY;
 import static com.android.providers.contacts.aggregation.util.RawContactMatcher.SCORE_THRESHOLD_SECONDARY;
 import static com.android.providers.contacts.aggregation.util.RawContactMatcher.SCORE_THRESHOLD_SUGGEST;
+
+import android.content.Intent;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.provider.ContactsContract.AggregationExceptions;
@@ -70,6 +72,10 @@ public class ContactAggregator2 extends AbstractContactAggregator {
     private static final int RE_AGGREGATE = -1;
 
     private final RawContactMatcher mMatcher = new RawContactMatcher();
+
+    private static final String ACTION_CONTACTS_AUTO_MERGE =
+            "com.android.contacts.incall.CONTACTS_AUTO_MERGE";
+    private static final String CONTACT_AUTO_MERGE_KEY_RAW_IDS = "RAW_IDS";
 
     /**
      * Constructor.
@@ -367,6 +373,11 @@ public class ContactAggregator2 extends AbstractContactAggregator {
             if (VERBOSE_LOGGING) {
                 Log.v(TAG, "Aggregating rids=" + connectedRawContactIds);
             }
+            // metrics
+            Intent intent = new Intent(ACTION_CONTACTS_AUTO_MERGE);
+            intent.putExtra(CONTACT_AUTO_MERGE_KEY_RAW_IDS, connectedRids);
+            mContactsProvider.getContext().sendBroadcast(intent);
+
             markAggregated(db, connectedRids);
 
             for (Long cid : cidsNeedToBeUpdated) {

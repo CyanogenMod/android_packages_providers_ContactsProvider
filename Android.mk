@@ -10,6 +10,8 @@ LOCAL_SRC_FILES += \
 
 LOCAL_JAVA_LIBRARIES := ext telephony-common
 
+LOCAL_FULL_LIBS_MANIFEST_FILES := $(LOCAL_PATH)/AndroidManifest_cm.xml
+
 LOCAL_STATIC_JAVA_AAR_LIBRARIES := ambientsdk-internal
 LOCAL_STATIC_JAVA_LIBRARIES += android-common com.android.vcard guava
 
