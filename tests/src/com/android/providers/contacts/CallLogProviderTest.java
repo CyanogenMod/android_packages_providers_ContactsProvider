@@ -188,7 +188,7 @@ public class CallLogProviderTest extends BaseContactsProvider2Test {
 
         Uri uri = Calls.addCall(ci, getMockContext(), "1-800-263-7643",
                 PhoneConstants.PRESENTATION_ALLOWED, Calls.OUTGOING_TYPE, 0, subscription, 2000,
-                40, null);
+                40, null, null);
 
         ContentValues values = new ContentValues();
         values.put(Calls.TYPE, Calls.OUTGOING_TYPE);
