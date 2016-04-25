@@ -213,6 +213,14 @@ public class ContactsProvider2 extends AbstractContactsProvider
     private static final String WRITE_PERMISSION = "android.permission.WRITE_CONTACTS";
     private static final String INTERACT_ACROSS_USERS = "android.permission.INTERACT_ACROSS_USERS";
 
+    /**
+     * If this boolean parameter is set to true, then the appended query is treated as a
+     * InCallApi plugin contact ID and the lookup will be performed against InCallApi contacts in
+     * the user's contacts.
+     */
+    // TODO: Move this to a more central place
+    private static final String QUERY_PARAMETER_INCALLAPI_ID = "incallapi_contactid";
+
     /* package */ static final String UPDATE_TIMES_CONTACTED_CONTACTS_TABLE =
           "UPDATE " + Tables.CONTACTS + " SET " + Contacts.TIMES_CONTACTED + "=" +
           " ifnull(" + Contacts.TIMES_CONTACTED + ",0)+1" +
@@ -6361,7 +6369,9 @@ public class ContactsProvider2 extends AbstractContactsProvider
                 // Phone lookup cannot be combined with a selection
                 selection = null;
                 selectionArgs = null;
-                if (uri.getBooleanQueryParameter(PhoneLookup.QUERY_PARAMETER_SIP_ADDRESS, false)) {
+                final boolean isSipAddress = uri.getBooleanQueryParameter(
+                        PhoneLookup.QUERY_PARAMETER_SIP_ADDRESS, false);
+                if (isSipAddress) {
                     if (TextUtils.isEmpty(sortOrder)) {
                         // Default the sort order to something reasonable so we get consistent
                         // results when callers don't request an ordering
@@ -6383,33 +6393,32 @@ public class ContactsProvider2 extends AbstractContactsProvider
 
                     String number =
                             uri.getPathSegments().size() > 1 ? uri.getLastPathSegment() : "";
+                    String numberE164 = PhoneNumberUtils.formatNumberToE164(
+                            number, mDbHelper.get().getCurrentCountryIso());
+                    String normalizedNumber = PhoneNumberUtils.normalizeNumber(number);
 
-                    boolean isPhoneNumber = isPhoneNumber(number);
-
-                    String[] projectionWithNumber;
-                    if (isPhoneNumber) {
-                        String numberE164 = PhoneNumberUtils.formatNumberToE164(
-                                number, mDbHelper.get().getCurrentCountryIso());
-                        String normalizedNumber = PhoneNumberUtils.normalizeNumber(number);
+                    // Change query based on call type...
+                    final boolean isInCallPluginContactId = uri.getBooleanQueryParameter(
+                            QUERY_PARAMETER_INCALLAPI_ID, false);
+                    if (isInCallPluginContactId) {
+                        // InCallApi contact id
+                        mDbHelper.get().buildDataLookupAndContactQuery(qb, number);
+                    } else {
+                        // Regular phone number
                         mDbHelper.get().buildPhoneLookupAndContactQuery(
                                 qb, normalizedNumber, numberE164);
-                        qb.setProjectionMap(sPhoneLookupProjectionMap);
-
-                        // removeNonStarMatchesFromCursor() requires the cursor to contain
-                        // PhoneLookup.NUMBER. Therefore, if the projection explicitly omits it, extend
-                        // the projection.
-                        projectionWithNumber = projection;
-                        if (projection != null
-                                && !ArrayUtils.contains(projection,PhoneLookup.NUMBER)) {
-                            projectionWithNumber = ArrayUtils.appendElement(
-                                    String.class, projection, PhoneLookup.NUMBER);
-                        }
-                    } else {
-                        mDbHelper.get().buildDataLookupAndContactQuery(qb, number);
-                        projectionWithNumber = new String[0];
-                        sortOrder = null;
                     }
+                    qb.setProjectionMap(sPhoneLookupProjectionMap);
 
+                    // removeNonStarMatchesFromCursor() requires the cursor to contain
+                    // PhoneLookup.NUMBER. Therefore, if the projection explicitly omits it, extend
+                    // the projection.
+                    String[] projectionWithNumber = projection;
+                    if (projection != null
+                            && !ArrayUtils.contains(projection,PhoneLookup.NUMBER)) {
+                        projectionWithNumber = ArrayUtils.appendElement(
+                                String.class, projection, PhoneLookup.NUMBER);
+                    }
 
                     // Peek at the results of the first query (which attempts to use fully
                     // normalized and internationalized numbers for comparison).  If no results
@@ -6422,12 +6431,8 @@ public class ContactsProvider2 extends AbstractContactsProvider
                     try {
                         if (cursor.getCount() > 0) {
                             foundResult = true;
-                            if (isPhoneNumber) {
-                                return PhoneLookupWithStarPrefix
-                                        .removeNonStarMatchesFromCursor(number, cursor);
-                            } else {
-                                return cursor;
-                            }
+                            return PhoneLookupWithStarPrefix
+                                    .removeNonStarMatchesFromCursor(number, cursor);
                         }
 
                         // Use the fall-back lookup method.
@@ -6908,11 +6913,17 @@ public class ContactsProvider2 extends AbstractContactsProvider
         final String phoneNumber = Uri.decode(uri.getLastPathSegment());
         final boolean isSipAddress = uri.getBooleanQueryParameter(
                 PhoneLookup.QUERY_PARAMETER_SIP_ADDRESS, false);
+        // Only allow inCallApiContact specification if not SIP address
+        final boolean isInCallPluginContactId = uri.getBooleanQueryParameter(
+                QUERY_PARAMETER_INCALLAPI_ID, false) && !isSipAddress;
         final Uri localUri = PhoneLookup.CONTENT_FILTER_URI
                 .buildUpon()
                 .appendPath(phoneNumber)
                 .appendQueryParameter(PhoneLookup.QUERY_PARAMETER_SIP_ADDRESS,
-                        String.valueOf(isSipAddress)).build();
+                        String.valueOf(isSipAddress))
+                .appendQueryParameter(QUERY_PARAMETER_INCALLAPI_ID,
+                        String.valueOf(isInCallPluginContactId))
+                .build();
         return queryEnterpriseIfNecessary(localUri, projection, null, null, null,
                 isSipAddress ? Data.CONTACT_ID : PhoneLookup._ID);
     }
