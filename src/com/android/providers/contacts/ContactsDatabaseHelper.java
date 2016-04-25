@@ -5255,8 +5255,12 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
 
     public void buildDataLookupAndContactQuery(SQLiteQueryBuilder qb, String data) {
         StringBuilder sb = new StringBuilder();
-        buildDataQuery(sb, data);
+        buildDataQueryTables(sb);
         qb.setTables(sb.toString());
+
+        sb = new StringBuilder();
+        buildDataQuerySelection(sb, data);
+        qb.appendWhere(sb.toString());
     }
 
     /**
@@ -5336,11 +5340,27 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
     }
 
     private void buildDataQuery(StringBuilder sb, String lookupData) {
-        // Todo: make more performant
-        sb.append(Tables.RAW_CONTACTS +
-                " JOIN " + Views.DATA + " data_view ON (data_view.raw_contact_id = "
-                + Tables.RAW_CONTACTS  + "._id) WHERE data1 = ");
-        DatabaseUtils.appendEscapedSQLString(sb, lookupData);
+        sb.append(Tables.RAW_CONTACTS);
+        sb.append(" JOIN " + Views.CONTACTS + " contacts_view"
+                + " ON (contacts_view._id = raw_contacts.contact_id)");
+        sb.append(" JOIN " + Views.DATA + " data_view"
+                + " ON (data_view.raw_contact_id = " + Tables.RAW_CONTACTS  + "._id)");
+    }
+
+    private void buildDataQueryTables(StringBuilder sb) {
+        sb.append(Tables.RAW_CONTACTS);
+        sb.append(" JOIN " + Views.CONTACTS + " contacts_view"
+                + " ON (contacts_view._id = raw_contacts.contact_id)");
+        sb.append(", (SELECT data_id, normalized_number, length(normalized_number) as len "
+                + " FROM phone_lookup) AS lookup, " + Tables.DATA);
+    }
+
+    private void buildDataQuerySelection(StringBuilder sb, String lookupData) {
+        sb.append("data.raw_contact_id=raw_contacts._id");
+        if (!TextUtils.isEmpty(lookupData)) {
+            sb.append(" AND data.data1 = ");
+            DatabaseUtils.appendEscapedSQLString(sb, lookupData);
+        }
     }
 
     private void appendPhoneLookupSelection(StringBuilder sb, String number, String numberE164) {
