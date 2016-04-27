@@ -32,4 +32,8 @@
     <string name="debug_dump_email_sender_picker" msgid="3534420908672176460">"选择用于发送文件的程序"</string>
     <string name="debug_dump_email_subject" msgid="108188398416385976">"随附通讯录数据库"</string>
     <string name="debug_dump_email_body" msgid="4577749800871444318">"附件是我的通讯录数据库，其中包含我所有的联系人信息，因此请谨慎处理。"</string>
+
+    <string name="group_title_co_workers">"同事"</string>
+    <string name="group_title_family">"家人"</string>
+    <string name="group_title_friends">"朋友"</string>
 </resources>

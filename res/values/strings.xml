@@ -69,4 +69,7 @@
     <!-- Debug tool - email body [CHAR LIMIT=NONE] -->
     <string name="debug_dump_email_body">Attached is my contacts database with all my contacts information.  Handle with care.</string>
 
+    <string name="group_title_co_workers">"Coworkers"</string>
+    <string name="group_title_family">"Family"</string>
+    <string name="group_title_friends">"Friends"</string>
 </resources>
