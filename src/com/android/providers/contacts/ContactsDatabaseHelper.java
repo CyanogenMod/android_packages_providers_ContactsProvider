@@ -3530,9 +3530,14 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
                 groupId = cursor.getLong(0);
                 titleRes = cursor.getInt(1);
                 values.clear();
-                values.put(Groups.TITLE, mContext.getResources().getString(titleRes));
-                db.update(Tables.GROUPS, values, Groups._ID + " = ?", new String[] {
-                    String.valueOf(groupId)});
+                try {
+                    final String lookup = mContext.getResources().getString(titleRes);
+                    values.put(Groups.TITLE, lookup);
+                    db.update(Tables.GROUPS, values, Groups._ID + " = ?", new String[]{
+                            String.valueOf(groupId)});
+                } catch (Resources.NotFoundException e) {
+                    Log.e(TAG, "could not find resource " + titleRes + " for groupId " + groupId);
+                }
             }
         } finally {
             cursor.close();
