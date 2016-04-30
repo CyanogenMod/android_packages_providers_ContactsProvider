@@ -14,3 +14,4 @@
 }
 
 -verbose
+-dontwarn com.cyanogen.**
