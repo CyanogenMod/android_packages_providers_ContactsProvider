@@ -70,6 +70,8 @@ public class CallLogProvider extends ContentProvider {
     private static final int BACKGROUND_TASK_INITIALIZE = 0;
     private static final int BACKGROUND_TASK_ADJUST_PHONE_ACCOUNT = 1;
 
+    private static final String GROUP_BY = "groupby";
+
     /** Selection clause for selecting all calls that were made after a certain time */
     private static final String MORE_RECENT_THAN_SELECTION = Calls.DATE + "> ?";
     /** Selection clause to use to exclude voicemail records.  */
@@ -272,8 +274,10 @@ public class CallLogProvider extends ContentProvider {
             limitClause = offset + "," + limit;
         }
 
+        final String groupby = getStringParam(uri, GROUP_BY, null);
+
         final SQLiteDatabase db = mDbHelper.getReadableDatabase();
-        final Cursor c = qb.query(db, projection, selectionBuilder.build(), selectionArgs, null,
+        final Cursor c = qb.query(db, projection, selectionBuilder.build(), selectionArgs, groupby,
                 null, sortOrder, limitClause);
         if (c != null) {
             c.setNotificationUri(getContext().getContentResolver(), CallLog.CONTENT_URI);
@@ -304,6 +308,23 @@ public class CallLogProvider extends ContentProvider {
                     "' was found instead.";
             throw new IllegalArgumentException(msg, e);
         }
+    }
+
+    /**
+     * Gets an String query parameter from a given uri.
+     *
+     * @param uri The uri to extract the query parameter from.
+     * @param key The query parameter key.
+     * @param defaultValue A default value to return if the query parameter does not exist.
+     * @return The value from the query parameter in the Uri.  Or the default value if the parameter
+     * does not exist in the uri.
+     */
+    private String getStringParam(Uri uri, String key, String defaultValue) {
+        String valueString = uri.getQueryParameter(key);
+        if (valueString == null) {
+            return defaultValue;
+        }
+        return valueString;
     }
 
     @Override
