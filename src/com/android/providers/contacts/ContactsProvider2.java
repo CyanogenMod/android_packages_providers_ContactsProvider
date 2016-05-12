@@ -36,6 +36,8 @@ import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.ProviderInfo;
 import android.content.res.AssetFileDescriptor;
+import android.content.res.AssetManager;
+import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.content.res.Resources.NotFoundException;
 import android.database.AbstractCursor;
@@ -112,6 +114,7 @@ import android.provider.SyncStateContract;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.TelephonyManager;
 import android.text.TextUtils;
+import android.util.DisplayMetrics;
 import android.util.Log;
 import com.android.common.content.ProjectionMap;
 import com.android.common.content.SyncStateContentProviderHelper;
@@ -1834,10 +1837,13 @@ public class ContactsProvider2 extends AbstractContactsProvider
             }
 
             case BACKGROUND_TASK_ADD_DEFAULT_CONTACT: {
-                if (shouldAttemptPreloadingContacts()) {
+                Resources res = getRegionLockedResources();
+                if (res == null) {
+                    res = getContext().getResources();
+                }
+                if (shouldAttemptPreloadingContacts(res)) {
                     try {
-                        InputStream inputStream = getContext().getResources().openRawResource(
-                                R.raw.preloaded_contacts);
+                        InputStream inputStream = res.openRawResource(R.raw.preloaded_contacts);
                         PreloadedContactsFileParser pcfp = new
                                 PreloadedContactsFileParser(inputStream);
                         ArrayList<ContentProviderOperation> cpOperations = pcfp.parseForContacts();
@@ -1849,7 +1855,6 @@ public class ContactsProvider2 extends AbstractContactsProvider
                         onPreloadingContactsComplete();
 
                     } catch (NotFoundException nfe) {
-                        System.out.println();
                         nfe.printStackTrace();
                     } catch (JSONException e) {
                         e.printStackTrace();
@@ -1866,9 +1871,46 @@ public class ContactsProvider2 extends AbstractContactsProvider
         }
     }
 
-    private boolean shouldAttemptPreloadingContacts() {
+    private Resources getRegionLockedResources() {
+        String mcc = SystemProperties.get("ro.prebundled.mcc");
+        Resources customResources = null;
+        if (!TextUtils.isEmpty(mcc)) {
+            Configuration tempConfiguration = new Configuration(getContext().getResources().
+                    getConfiguration());
+            boolean shouldUseTempConfig = false;
+
+            try {
+                tempConfiguration.mcc = Integer.parseInt(mcc);
+                shouldUseTempConfig = true;
+            } catch (NumberFormatException e) {
+                Log.e(TAG, "Unable to parse mcc within ro.prebundled.mcc", e);
+            }
+
+            if (shouldUseTempConfig) {
+                String publicSrcDir = null;
+                try {
+                    String packageName = getContext().getPackageName();
+                    publicSrcDir = getContext().getPackageManager().
+                            getApplicationInfo(packageName, 0).publicSourceDir;
+                } catch (PackageManager.NameNotFoundException e) {
+                    Log.e(TAG, "Failed getting source dir", e);
+                }
+
+                AssetManager assetManager = new AssetManager();
+                if (!TextUtils.isEmpty(publicSrcDir)) {
+                    assetManager.addAssetPath(publicSrcDir);
+                }
+                customResources = new Resources(assetManager, new DisplayMetrics(),
+                        tempConfiguration);
+            }
+        }
+
+        return customResources;
+    }
+
+    private boolean shouldAttemptPreloadingContacts(Resources res) {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getContext());
-        return getContext().getResources().getBoolean(R.bool.config_preload_contacts) &&
+        return res.getBoolean(R.bool.config_preload_contacts) &&
                 !prefs.getBoolean(PREF_PRELOADED_CONTACTS_ADDED, false);
     }
 
