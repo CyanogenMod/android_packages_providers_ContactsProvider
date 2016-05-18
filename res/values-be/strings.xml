@@ -23,8 +23,10 @@
   <!-- Ticker for the notification shown when updating contacts fails because of memory shortage -->
   <!-- Title for the notification shown when updating contacts fails because of memory shortage -->
   <!-- Text for the notification shown when updating contacts fails because of memory shortage -->
+  <string name="upgrade_out_of_memory_notification_text">Краніся, каб скончыць абнаўленьне.</string>
   <!-- The name of the default contact directory -->
   <!-- The name of the invisible local contact directory -->
+  <string name="local_invisible_directory">Іньшы</string>
   <!-- The prefix string before the number used for the display name for the voicemail table.
          Because of the way this is combined in SQL we can't allow a generic format string.
          The resulting string will be this string with the number appended to the end.
