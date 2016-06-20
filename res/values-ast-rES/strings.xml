@@ -52,4 +52,7 @@
   <string name="debug_dump_email_subject">Base datos de contautos axuntada</string>
   <!-- Debug tool - email body [CHAR LIMIT=NONE] -->
   <string name="debug_dump_email_body">La mio base de datos de contautos con tola información de contautos, va axunta a esti mensaxe. Usa esta información con curiáu.</string>
+  <string name="group_title_co_workers">"Compañeros de trabayu"</string>
+  <string name="group_title_family">"Familia"</string>
+  <string name="group_title_friends">"Collacios"</string>
 </resources>
