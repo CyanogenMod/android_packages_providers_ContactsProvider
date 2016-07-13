@@ -36,7 +36,7 @@ import com.android.providers.contacts.util.PropertyUtils;
 public class CallLogDatabaseHelper {
     private static final String TAG = "CallLogDatabaseHelper";
 
-    private static final int DATABASE_VERSION = 2;
+    private static final int DATABASE_VERSION = 3;
 
     private static final boolean DEBUG = false; // DON'T SUBMIT WITH TRUE
 
@@ -52,6 +52,7 @@ public class CallLogDatabaseHelper {
     private final Context mContext;
 
     private final OpenHelper mOpenHelper;
+    public static final String CALLS_OPERATOR = "operator";
 
     public interface Tables {
         String CALLS = "calls";
@@ -150,7 +151,8 @@ public class CallLogDatabaseHelper {
                     Voicemails.TRANSCRIPTION + " TEXT," +
                     Voicemails.STATE + " INTEGER," +
                     Voicemails.DIRTY + " INTEGER NOT NULL DEFAULT 0," +
-                    Voicemails.DELETED + " INTEGER NOT NULL DEFAULT 0" +
+                    Voicemails.DELETED + " INTEGER NOT NULL DEFAULT 0," +
+                    CALLS_OPERATOR + " TEXT" +
                     ");");
 
             db.execSQL("CREATE TABLE " + Tables.VOICEMAIL_STATUS + " (" +
@@ -176,8 +178,8 @@ public class CallLogDatabaseHelper {
                 Log.d(TAG, "onUpgrade");
             }
 
-            if (oldVersion < 2) {
-                upgradeToVersion2(db);
+            if (oldVersion < 3) {
+                upgradeToVersion3(db);
             }
         }
     }
@@ -223,9 +225,8 @@ public class CallLogDatabaseHelper {
     /**
      * Add the {@link Calls.VIA_NUMBER} Column to the CallLog Database.
      */
-    private void upgradeToVersion2(SQLiteDatabase db) {
-        db.execSQL("ALTER TABLE " + Tables.CALLS + " ADD " + Calls.VIA_NUMBER +
-                " TEXT NOT NULL DEFAULT ''");
+    private void upgradeToVersion3(SQLiteDatabase db) {
+        db.execSQL("ALTER TABLE " + Tables.CALLS + " ADD " + CALLS_OPERATOR + " TEXT" + ";");  
     }
 
     /**

@@ -43,12 +43,16 @@ import android.os.UserHandle;
 import android.os.UserManager;
 import android.provider.CallLog;
 import android.provider.CallLog.Calls;
+import android.telephony.SubscriptionInfo;
+import android.telephony.SubscriptionManager;
+import android.telephony.TelephonyManager;
 import android.telecom.PhoneAccount;
 import android.telecom.PhoneAccountHandle;
 import android.telecom.TelecomManager;
 import android.text.TextUtils;
 import android.util.Log;
 
+import com.android.internal.telephony.PhoneConstants;
 import com.android.providers.contacts.CallLogDatabaseHelper.DbProperties;
 import com.android.providers.contacts.CallLogDatabaseHelper.Tables;
 import com.android.providers.contacts.util.SelectionBuilder;
@@ -156,6 +160,8 @@ public class CallLogProvider extends ContentProvider {
         sCallsProjectionMap.put(Calls.CACHED_FORMATTED_NUMBER, Calls.CACHED_FORMATTED_NUMBER);
         sCallsProjectionMap.put(Calls.ADD_FOR_ALL_USERS, Calls.ADD_FOR_ALL_USERS);
         sCallsProjectionMap.put(Calls.LAST_MODIFIED, Calls.LAST_MODIFIED);
+        sCallsProjectionMap.put(CallLogDatabaseHelper.CALLS_OPERATOR,
+                CallLogDatabaseHelper.CALLS_OPERATOR);
     }
 
     private HandlerThread mBackgroundThread;
@@ -350,6 +356,13 @@ public class CallLogProvider extends ContentProvider {
         }
         waitForAccess(mReadAccessLatch);
         checkForSupportedColumns(sCallsProjectionMap, values);
+        if (values.containsKey(Calls.PHONE_ACCOUNT_ID)) {
+            int subscription = values.getAsInteger(Calls.PHONE_ACCOUNT_ID);
+            if (subscription > SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+                String operator = getNetworkSpnName(subscription);
+                values.put(CallLogDatabaseHelper.CALLS_OPERATOR, operator);
+            }
+        }
         // Inserting a voicemail record through call_log requires the voicemail
         // permission and also requires the additional voicemail param set.
         if (hasVoicemailValue(values)) {
@@ -737,6 +750,40 @@ public class CallLogProvider extends ContentProvider {
             }
         } else if (task == BACKGROUND_TASK_ADJUST_PHONE_ACCOUNT) {
             adjustForNewPhoneAccountInternal((PhoneAccountHandle) arg);
+        }
+    }
+
+    private String getNetworkSpnName(int subscription) {
+        TelephonyManager tm = (TelephonyManager)
+                getContext().getSystemService(Context.TELEPHONY_SERVICE);
+        String netSpnName = "";
+        netSpnName = tm.getNetworkOperatorName(subscription);
+        if (TextUtils.isEmpty(netSpnName)) {
+            // if could not get the operator name, use sim name instead of
+            List<SubscriptionInfo> subInfoList =
+                    SubscriptionManager.from(getContext()).getActiveSubscriptionInfoList();
+            if (subInfoList != null) {
+                for (int i = 0; i < subInfoList.size(); ++i) {
+                    final SubscriptionInfo sir = subInfoList.get(i);
+                    if (sir.getSubscriptionId() == subscription) {
+                        netSpnName = sir.getDisplayName().toString();
+                        break;
+                    }
+                }
+            }
+        }
+        return toUpperCaseFirstOne(netSpnName);
+    }
+
+    private String toUpperCaseFirstOne(String s) {
+        if (TextUtils.isEmpty(s)) {
+            return s;
+        }
+        if (Character.isUpperCase(s.charAt(0))) {
+            return s;
+        } else {
+            return (new StringBuilder()).append(Character.toUpperCase(s.charAt(0)))
+                    .append(s.substring(1)).toString();
         }
     }
 }
