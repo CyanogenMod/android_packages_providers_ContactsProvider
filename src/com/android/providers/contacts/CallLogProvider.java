@@ -430,6 +430,10 @@ public class CallLogProvider extends ContentProvider {
                 // shadow provider too.
                 return getDatabaseModifier(db).delete(Tables.CALLS,
                         selectionBuilder.build(), selectionArgs);
+            case CALLS_ID:
+                return getDatabaseModifier(db).delete(Tables.CALLS,
+                        new SelectionBuilder(Calls._ID + "=?").build(),
+                        new String[] { uri.getLastPathSegment() });
             default:
                 throw new UnsupportedOperationException("Cannot delete that URL: " + uri);
         }
