@@ -3603,7 +3603,9 @@ public class ContactsDatabaseHelper extends SQLiteOpenHelper {
                 db.update(Tables.GROUPS, values, Groups._ID + " = ?", new String[] {
                     String.valueOf(groupId)});
             }
-        } finally {
+        } catch (Exception e) {
+            Log.i(TAG, e.toString());
+        }  finally {
             cursor.close();
         }
     }
