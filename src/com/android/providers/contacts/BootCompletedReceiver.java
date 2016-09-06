@@ -31,7 +31,9 @@ package com.android.providers.contacts;/*
  */
 
 import android.content.BroadcastReceiver;
+import android.content.ContentProvider;
 import android.content.Context;
+import android.content.IContentProvider;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.SystemClock;
@@ -78,6 +80,14 @@ public class BootCompletedReceiver extends BroadcastReceiver {
             context.sendBroadcast(broadcast, android.Manifest.permission.READ_CONTACTS);
 
             prefs.edit().putString(DATABASE_TIME_CREATED, dbTime).commit();
+
+            //Initial Set up to do After DB creation.
+            IContentProvider iprovider =
+                    context.getContentResolver().acquireProvider(ContactsContract.AUTHORITY);
+            ContentProvider provider = ContentProvider.coerceToLocalContentProvider(iprovider);
+            if (provider instanceof ContactsProvider2) {
+                ((ContactsProvider2)provider).onContactsDbCreated();
+            }
         }
     }
 
