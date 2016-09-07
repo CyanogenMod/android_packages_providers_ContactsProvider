@@ -18,4 +18,8 @@
            xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
     <!-- Package name for the contacts metadata syncadapter [DO NOT TRANSLATE] -->
     <string name="metadata_sync_pacakge" translatable="false"></string>
+    <!-- support preload contact list -->
+    <bool name="support_preload_contact_info">false</bool>
+    <!-- the count of preload contact-->
+    <integer name="preload_contact_count">1</integer>
 </resources>
