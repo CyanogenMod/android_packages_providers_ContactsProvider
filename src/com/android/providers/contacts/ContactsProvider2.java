@@ -263,6 +263,7 @@ public class ContactsProvider2 extends AbstractContactsProvider
     private static final int BACKGROUND_TASK_CHANGE_LOCALE = 9;
     private static final int BACKGROUND_TASK_CLEANUP_PHOTOS = 10;
     private static final int BACKGROUND_TASK_CLEAN_DELETE_LOG = 11;
+    private static final int BACKGROUND_TASK_UPDATE_DEFAULT_CONTACTS = 12;
 
     protected static final int STATUS_NORMAL = 0;
     protected static final int STATUS_UPGRADING = 1;
@@ -1856,6 +1857,11 @@ public class ContactsProvider2 extends AbstractContactsProvider
                 DeletedContactsTableUtil.deleteOldLogs(db);
                 break;
             }
+
+            case BACKGROUND_TASK_UPDATE_DEFAULT_CONTACTS: {
+                updateDefaultContacts();
+                break;
+            }
         }
     }
 
@@ -2076,6 +2082,75 @@ public class ContactsProvider2 extends AbstractContactsProvider
                 db.endTransaction();
             }
         }
+    }
+
+    public void onContactsDbCreated() {
+        Log.i(TAG, "onContactsDbCreated");
+        if (mProviderStatus != STATUS_NORMAL
+                && mProviderStatus != STATUS_NO_ACCOUNTS_NO_CONTACTS) {
+            return;
+        }
+        scheduleBackgroundTask(BACKGROUND_TASK_UPDATE_DEFAULT_CONTACTS);
+    }
+
+    private boolean isEmergencyOnpowerButtonTapEnabled(Resources resources) {
+        return SystemProperties.getBoolean(
+                "persist.sys.ecall_pwr_key_press", false) ||
+                resources.getBoolean(
+                com.android.internal.R.bool.config_emergencyCallOnPowerkeyTapGestureEnabled);
+    }
+
+    private void updateDefaultContacts() {
+        Resources resources = getContext().getResources();
+        if (isEmergencyOnpowerButtonTapEnabled(resources)) {
+            createEmergencyContact(resources);
+        }
+    }
+
+    private void createEmergencyContact(Resources resources) {
+        ContentResolver resolver = getContext().getContentResolver();
+        final String emergencyNumber = resources.getString(
+            com.android.internal.R.string.power_key_emergency_number);
+        final String emergencyDisplayName = resources.getString(
+            com.android.internal.R.string.emergency_call_dialog_number_for_display);
+
+        ContentValues values = new ContentValues();
+        Uri rawContactUri = getContext().getContentResolver().insert(
+                ContactsContract.RawContacts.CONTENT_URI,values);
+        long rawContactId = ContentUris.parseId(rawContactUri);
+
+        Log.i(TAG, "createEmergencyContact name " + emergencyDisplayName
+                + " Contact Number " + emergencyNumber);
+        insertStructuredName(resolver, rawContactId, emergencyDisplayName);
+        insertPhoneNumber(resolver, rawContactId,
+                emergencyNumber,
+                ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE);
+    }
+
+    private static Uri insertStructuredName(ContentResolver resolver,
+                                           long rawContactId,
+                                           String name) {
+        ContentValues values = new ContentValues();
+        values.put(StructuredName.DISPLAY_NAME, name);
+        values.put(ContactsContract.Data.RAW_CONTACT_ID, rawContactId);
+        values.put(ContactsContract.Data.MIMETYPE,
+                ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE);
+        Uri resultUri = resolver.insert(ContactsContract.Data.CONTENT_URI, values);
+        return resultUri;
+    }
+
+    private static Uri insertPhoneNumber(ContentResolver contentResolver,
+                                         long rawContactId,
+                                         String phoneNumber,
+                                         int type) {
+        ContentValues values = new ContentValues();
+        values.put(ContactsContract.Data.RAW_CONTACT_ID, rawContactId);
+        values.put(ContactsContract.Data.MIMETYPE,
+                ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE);
+        values.put(ContactsContract.CommonDataKinds.Phone.NUMBER, phoneNumber);
+        values.put(ContactsContract.CommonDataKinds.Phone.TYPE, type);
+        values.put(ContactsContract.CommonDataKinds.Phone.LABEL, "Mobile");
+        return contentResolver.insert(ContactsContract.Data.CONTENT_URI, values);
     }
 
     @Override
