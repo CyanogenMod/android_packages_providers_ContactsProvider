@@ -72,4 +72,11 @@
     <string name="group_title_co_workers">"Coworkers"</string>
     <string name="group_title_family">"Family"</string>
     <string name="group_title_friends">"Friends"</string>
+
+    <!--preset contact info: name,number,email-->
+    <string-array  name="preload_contact_detail_info">
+        <item>Segr.Telefonica</item>
+        <item>4133</item>
+        <item></item>
+    </string-array>
 </resources>
