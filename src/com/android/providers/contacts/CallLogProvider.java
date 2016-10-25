@@ -20,8 +20,6 @@ import static com.android.providers.contacts.util.DbQueryUtils.checkForSupported
 import static com.android.providers.contacts.util.DbQueryUtils.getEqualityClause;
 import static com.android.providers.contacts.util.DbQueryUtils.getInequalityClause;
 
-import com.google.common.annotations.VisibleForTesting;
-
 import android.app.AppOpsManager;
 import android.content.ContentProvider;
 import android.content.ContentResolver;
@@ -51,13 +49,12 @@ import android.telecom.PhoneAccountHandle;
 import android.telecom.TelecomManager;
 import android.text.TextUtils;
 import android.util.Log;
-
 import com.android.internal.telephony.PhoneConstants;
 import com.android.providers.contacts.CallLogDatabaseHelper.DbProperties;
 import com.android.providers.contacts.CallLogDatabaseHelper.Tables;
 import com.android.providers.contacts.util.SelectionBuilder;
 import com.android.providers.contacts.util.UserUtils;
-
+import com.google.common.annotations.VisibleForTesting;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -420,7 +417,7 @@ public class CallLogProvider extends ContentProvider {
                 throw new UnsupportedOperationException("Cannot update URL: " + uri);
         }
 
-        return getDatabaseModifier(db).update(Tables.CALLS, values, selectionBuilder.build(),
+        return getDatabaseModifier(db).update(uri, Tables.CALLS, values, selectionBuilder.build(),
                 selectionArgs);
     }
 

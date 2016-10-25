@@ -27,7 +27,6 @@ import android.database.sqlite.SQLiteQueryBuilder;
 import android.net.Uri;
 import android.os.ParcelFileDescriptor;
 import android.provider.VoicemailContract.Status;
-
 import com.android.common.content.ProjectionMap;
 import com.android.providers.contacts.VoicemailContentProvider.UriData;
 
@@ -41,6 +40,8 @@ public class VoicemailStatusTable implements VoicemailTable.Delegate {
 
     private static final ProjectionMap sStatusProjectionMap = new ProjectionMap.Builder()
             .add(Status._ID)
+            .add(Status.PHONE_ACCOUNT_COMPONENT_NAME)
+            .add(Status.PHONE_ACCOUNT_ID)
             .add(Status.CONFIGURATION_STATE)
             .add(Status.DATA_CHANNEL_STATE)
             .add(Status.NOTIFICATION_CHANNEL_STATE)
@@ -49,6 +50,7 @@ public class VoicemailStatusTable implements VoicemailTable.Delegate {
             .add(Status.VOICEMAIL_ACCESS_URI)
             .add(Status.QUOTA_OCCUPIED)
             .add(Status.QUOTA_TOTAL)
+            .add(Status.SOURCE_TYPE)
             .build();
 
     private static final Object DATABASE_LOCK = new Object();
@@ -73,12 +75,13 @@ public class VoicemailStatusTable implements VoicemailTable.Delegate {
             // Try to update before insert.
             String combinedClause = uriData.getWhereClause();
             int rowsChanged = getDatabaseModifier(db)
-                    .update(mTableName, values, combinedClause, null);
+                    .update(uriData.getUri(), mTableName, values, combinedClause, null);
             if (rowsChanged != 0) {
                 final String[] selection = new String[] {Status._ID};
                 Cursor c = db.query(mTableName, selection, combinedClause, null, null, null, null);
                 c.moveToFirst();
                 int rowId = c.getInt(0);
+                c.close();
                 return ContentUris.withAppendedId(uriData.getUri(), rowId);
             }
             ContentValues copiedValues = new ContentValues(values);
@@ -128,8 +131,8 @@ public class VoicemailStatusTable implements VoicemailTable.Delegate {
         synchronized (DATABASE_LOCK) {
             SQLiteDatabase db = mDbHelper.getWritableDatabase();
             String combinedClause = concatenateClauses(selection, uriData.getWhereClause());
-            return getDatabaseModifier(db).update(mTableName, values, combinedClause,
-                    selectionArgs);
+            return getDatabaseModifier(db)
+                    .update(uriData.getUri(), mTableName, values, combinedClause, selectionArgs);
         }
     }
 
