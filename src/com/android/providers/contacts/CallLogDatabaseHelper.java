@@ -283,6 +283,10 @@ public class CallLogDatabaseHelper {
                         cv.clear();
 
                         DatabaseUtils.cursorRowToContentValues(source, cv);
+                        cv.remove("duration_type");
+                        cv.remove("origin");
+                        cv.remove("plugin_package_name");
+                        cv.remove("plugin_user_handle");
 
                         calllog.insertOrThrow(Tables.CALLS, null, cv);
                     }
