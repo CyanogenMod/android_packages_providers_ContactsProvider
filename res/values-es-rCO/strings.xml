@@ -19,13 +19,11 @@
          apps sharing the uid). -->
   <!-- This is the label for the application that stores contacts data -->
   <!-- What to show in messaging that refers to this provider, e.g. AccountSyncSettings -->
-  <string name="provider_label">Kontaktoj</string>
   <!-- [CHAR LIMIT=NONE] Boot message while upgrading contacts. -->
   <!-- Ticker for the notification shown when updating contacts fails because of memory shortage -->
   <!-- Title for the notification shown when updating contacts fails because of memory shortage -->
   <!-- Text for the notification shown when updating contacts fails because of memory shortage -->
   <!-- The name of the default contact directory -->
-  <string name="default_directory">Kontaktoj</string>
   <!-- The name of the invisible local contact directory -->
   <!-- The prefix string before the number used for the display name for the voicemail table.
          Because of the way this is combined in SQL we can't allow a generic format string.
