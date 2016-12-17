@@ -287,6 +287,7 @@ public class CallLogDatabaseHelper {
                         cv.remove("origin");
                         cv.remove("plugin_package_name");
                         cv.remove("plugin_user_handle");
+                        cv.remove("subscription");
 
                         calllog.insertOrThrow(Tables.CALLS, null, cv);
                     }
